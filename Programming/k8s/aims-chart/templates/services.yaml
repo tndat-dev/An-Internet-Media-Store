@@ -147,6 +147,9 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+              # PodSpec is nested in a CRD, so Argo CD cannot infer this API
+              # default during diffing; declare it to prevent self-heal loops.
+              protocol: TCP
           readinessProbe:
             # Kubelet probes are plaintext host traffic. With Ambient STRICT,
             # use an in-container loopback probe so health checks do not need

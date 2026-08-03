@@ -970,9 +970,10 @@ code.
 
 Sau commit bàn giao, `Application/aims-production` được bật trên cụm với
 automated sync/prune/self-heal. Desired HTTPRoute khai báo tường minh các default
-`group/kind/weight` để Gateway API không tạo diff giả; values của Argo CD/Rollouts
-ghi lại node pool `system`, và installer dùng Helm SSA `--force-conflicts` để
-tiếp quản có chủ đích field từng được patch thủ công.
+`group/kind/weight`, còn PodSpec lồng trong Rollout khai báo `protocol: TCP` để
+CRD diff không tạo self-heal giả; values của Argo CD/Rollouts ghi lại node pool
+`system`, và installer dùng Helm SSA `--force-conflicts` để tiếp quản có chủ đích
+field từng được patch thủ công.
 
 ## 15. Kết luận
 
