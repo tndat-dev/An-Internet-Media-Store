@@ -121,11 +121,11 @@ private key không thuộc source code; chúng phải được nạp vào Vault/
 variables.
 
 Trạng thái live 03/08/2026: Argo CD 3.4.5 và Argo Rollouts 1.9.1 đều khỏe; 9/9
-Rollout AIMS `Healthy`. Cụm chưa có `Application` AIMS và chưa cài GitLab Runner.
-Argo CD UI/API được expose NodePort `30081`, Rollouts Dashboard `30100`. GitLab
-CI có thể dùng shared runner bên ngoài; nếu dùng self-managed runner trong cụm
-thì phải tạo runner authentication token/Secret trước, không lưu token trong
-repository.
+Rollout AIMS `Healthy`. `Application/aims-production` đã đọc chart trên GitHub
+`main`, automated sync/prune/self-heal; cụm chưa cài GitLab Runner. Argo CD UI/API
+được expose NodePort `30081`, Rollouts Dashboard `30100`. GitLab CI có thể dùng
+shared runner bên ngoài; nếu dùng self-managed runner trong cụm thì phải tạo
+runner authentication token/Secret trước, không lưu token trong repository.
 
 Kiểm tra local sau khi sửa layout pipeline: backend `207 passed`, frontend lint
 và typecheck PASS, YAML pipeline parse PASS, Docker build backend/frontend PASS,

@@ -127,43 +127,43 @@ spec:
         - path: {type: PathPrefix, value: /api/auth/}
         - path: {type: PathPrefix, value: /api/admin/}
       backendRefs:
-        - {name: auth-service, port: 8000}
+        - {group: "", kind: Service, name: auth-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/products/}
       backendRefs:
-        - {name: catalog-service, port: 8000}
+        - {group: "", kind: Service, name: catalog-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/cart/}
       backendRefs:
-        - {name: cart-service, port: 8000}
+        - {group: "", kind: Service, name: cart-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/orders/}
       backendRefs:
-        - {name: order-service, port: 8000}
+        - {group: "", kind: Service, name: order-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/payments/}
       backendRefs:
-        - {name: payment-service, port: 8000}
+        - {group: "", kind: Service, name: payment-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/inventory/}
       backendRefs:
-        - {name: inventory-service, port: 8000}
+        - {group: "", kind: Service, name: inventory-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/notifications/}
       backendRefs:
-        - {name: notification-service, port: 8000}
+        - {group: "", kind: Service, name: notification-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/security/}
       backendRefs:
-        - {name: security-telemetry-service, port: 8000}
+        - {group: "", kind: Service, name: security-telemetry-service, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /api/}
       backendRefs:
-        - {name: api-gateway, port: 8000}
+        - {group: "", kind: Service, name: api-gateway, port: 8000, weight: 1}
     - matches:
         - path: {type: PathPrefix, value: /}
       backendRefs:
-        - {name: aims-frontend, port: 3000}
+        - {group: "", kind: Service, name: aims-frontend, port: 3000, weight: 1}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

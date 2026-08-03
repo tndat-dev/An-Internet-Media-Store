@@ -1,4 +1,9 @@
 # Matches the lab's reachable Argo CD API/UI service.
+global:
+  nodeSelector:
+    aims.io/node-pool: system
+    kubernetes.io/os: linux
+
 server:
   service:
     type: NodePort

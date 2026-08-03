@@ -15,11 +15,13 @@ helm repo update argo
 
 helm upgrade --install argocd argo/argo-cd --version 10.2.1 \
   --namespace argocd --create-namespace \
-  -f "$root/platform/argocd-values.yaml" --history-max 10
+  -f "$root/platform/argocd-values.yaml" --history-max 10 \
+  --force-conflicts
 
 helm upgrade --install argo-rollouts argo/argo-rollouts --version 2.41.1 \
   --namespace argo-rollouts --create-namespace \
-  -f "$root/platform/argo-rollouts-values.yaml" --history-max 10
+  -f "$root/platform/argo-rollouts-values.yaml" --history-max 10 \
+  --force-conflicts
 
 kubectl -n argocd rollout status deployment/argocd-server --timeout=5m
 kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=5m

@@ -583,13 +583,15 @@ Tiêu chí: 6/6 Ready, không DiskPressure, 3 etcd member healthy.
 
 ```bash
 kubectl -n production get rollouts.argoproj.io
+kubectl -n argocd get application aims-production
 kubectl -n production get pods \
   -l aims.hust.vn/workload-group=microservices -o wide
 kubectl -n production exec deploy/api-gateway -- \
   python manage.py check
 ```
 
-Tiêu chí: 9/9 Rollout `Healthy`, 18/18 pod Ready, phân bố 6–6–6.
+Tiêu chí: Argo CD `Synced/Healthy`, 9/9 Rollout `Healthy`, 18/18 pod Ready,
+phân bố 6–6–6.
 Frontend do Helm quản lý có 2/2 replica Ready, non-root và rootfs chỉ đọc.
 
 ### 8.3 Data/messaging
@@ -677,7 +679,7 @@ không còn PodVolumeBackup `Prepared/InProgress` mồ côi.
 | Trung bình | OpenSearch chart còn demo TLS | cert-manager + custom security config |
 | Đã xử lý | PSA Restricted | `production` đã Enforce, negative test bị từ chối |
 | Trung bình | Keycloak start-dev/admin bootstrap | external DB, TLS, HA và rotate bootstrap credential |
-| Trung bình | Argo CD repoURL cần khớp Git remote thật | cập nhật repo, deploy key và bật signed commit nếu có |
+| Đã xử lý | Argo CD repoURL | trỏ GitHub `tndat-dev/An-Internet-Media-Store`, tự sync từ `main` |
 | Trung bình | Rekor/keyless phụ thuộc GitLab OIDC/Internet | cấu hình runner và kiểm thử pipeline thực |
 | Thấp | Falco và Tetragon trùng một phần tín hiệu | phân vai rule/alert để giảm noise |
 
