@@ -1,0 +1,37 @@
+@startuml CreateProduct_Sequence
+title Create Product - Sequence (Strategy + Registry)
+
+actor "Product Manager" as PM
+participant "ManagerProductListCreateView" as View
+participant "ProductWriteSerializer" as Ser
+participant "ProductService" as Svc
+participant "ProductTypeRegistry" as Reg
+participant "<<Strategy>>\nProductTypeStrategy" as Strat
+participant "Product (model)" as Prod
+participant "ProductHistoryService" as Hist
+
+PM -> View : POST /api/products/ (payload)
+activate View
+View -> Ser : is_valid()
+Ser --> View : validated_data
+View -> Svc : create_product(data, manager_id)
+activate Svc
+Svc -> Prod : Product(**fields)
+Svc -> Prod : full_clean()
+Svc -> Reg : get(product_type)
+Reg --> Svc : strategy
+Svc -> Strat : validate_required(details, require_all=True)
+Strat --> Svc : missing[]
+Svc -> Svc : _raise_if_missing(missing)
+Svc -> Prod : save()
+Svc -> Strat : sync(product, details)
+activate Strat
+Strat -> Strat : normalize_enums(details)
+Strat -> Prod : <subtype>.update_or_create()
+deactivate Strat
+Svc -> Hist : log(CREATE, manager_id, snapshot)
+Svc --> View : product
+deactivate Svc
+View --> PM : 201 Created (ProductSerializer)
+deactivate View
+@enduml

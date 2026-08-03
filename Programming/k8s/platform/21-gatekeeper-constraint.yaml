@@ -1,0 +1,15 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredRuntimeHardening
+metadata:
+  name: production-runtime-hardening
+spec:
+  enforcementAction: deny
+  match:
+    namespaces:
+      - production
+      - cks-lab
+    kinds:
+      - apiGroups:
+          - ""
+        kinds:
+          - Pod

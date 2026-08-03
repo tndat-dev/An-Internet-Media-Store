@@ -1,0 +1,38 @@
+@startuml UpdateProduct_Sequence
+title Update Product - Sequence (Strategy + Registry)
+
+actor "Product Manager" as PM
+participant "ProductDetailView" as View
+participant "ProductPatchSerializer" as Ser
+participant "ProductService" as Svc
+participant "ProductTypeRegistry" as Reg
+participant "<<Strategy>>\nProductTypeStrategy" as Strat
+participant "Product (model)" as Prod
+participant "ProductHistoryService" as Hist
+
+PM -> View : PATCH /api/products/{id} (payload)
+activate View
+View -> Ser : is_valid()
+Ser --> View : validated_data
+View -> Svc : update_product(product, data, manager_id)
+activate Svc
+Svc -> Svc : require stock_adjustment_reason if stock changed
+Svc -> Prod : setattr(fields); full_clean(); save()
+alt product_type changed
+  Svc -> Reg : delete_other_details(product, keep_type)
+  Reg -> Prod : delete stale subtype rows
+end
+alt type_details provided
+  Svc -> Reg : get(product_type)
+  Reg --> Svc : strategy
+  Svc -> Strat : validate_required(details, require_all=type_changed)
+  Strat --> Svc : missing[]
+  Svc -> Svc : _raise_if_missing(missing)
+  Svc -> Strat : sync(product, details)
+end
+Svc -> Hist : log(UPDATE | STOCK_ADJUST, before/after)
+Svc --> View : product
+deactivate Svc
+View --> PM : 200 OK (ProductSerializer)
+deactivate View
+@enduml

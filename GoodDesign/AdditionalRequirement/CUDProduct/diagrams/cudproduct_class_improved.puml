@@ -1,0 +1,136 @@
+@startuml CUDProduct_Class_Improved
+title CUD Product - Improved Class Design (Strategy + Registry + Policy)
+
+' ---------- Entities ----------
+package "models" {
+  class Product {
+    +product_id : UUID
+    +product_type : ProductType
+    +title : str
+    +current_price : Decimal
+    +original_value : Decimal
+    +stock_quantity : int
+    +status : ProductStatus
+  }
+  class Book
+  class CD
+  class DVD
+  class Newspaper
+  class ProductHistory
+}
+
+Product "1" o-- "0..1" Book : book_details
+Product "1" o-- "0..1" CD : cd_details
+Product "1" o-- "0..1" DVD : dvd_details
+Product "1" o-- "0..1" Newspaper : newspaper_details
+Product "1" o-- "*" ProductHistory : histories
+
+' ---------- Strategy + Registry ----------
+package "types (Strategy + Registry)" {
+  abstract class ProductTypeStrategy {
+    +product_type
+    +model
+    +related_name
+    +allowed_fields
+    +required_fields
+    +enum_fields
+    +validate_required(details, require_all) : list
+    +normalize_enums(details) : list
+    +sync(product, details)
+    +serialize(product) : dict
+  }
+  class BookTypeStrategy
+  class CDTypeStrategy
+  class DVDTypeStrategy
+  class NewspaperTypeStrategy
+  class ProductTypeRegistry {
+    -_strategies : dict
+    +register(strategy)
+    +get(product_type) : ProductTypeStrategy
+    +all() : list
+    +related_names() : list
+    +delete_other_details(product, keep_type)
+  }
+}
+
+BookTypeStrategy --|> ProductTypeStrategy
+CDTypeStrategy --|> ProductTypeStrategy
+DVDTypeStrategy --|> ProductTypeStrategy
+NewspaperTypeStrategy --|> ProductTypeStrategy
+ProductTypeRegistry o--> "*" ProductTypeStrategy : registers
+BookTypeStrategy ..> Book : manages
+CDTypeStrategy ..> CD : manages
+DVDTypeStrategy ..> DVD : manages
+NewspaperTypeStrategy ..> Newspaper : manages
+
+' ---------- Services / policy ----------
+package "services / policies" {
+  class ProductService {
+    +create_product(data, manager_id) : Product
+    +update_product(product, data, manager_id) : Product
+    +delete_products(product_ids, manager_id) : list
+    +snapshot(product) : dict
+    -_raise_if_missing(missing)
+  }
+  class DeletionPolicy {
+    +MAX_PER_REQUEST = 10
+    +MAX_PER_DAY = 20
+    +check_request_size(count)
+    +check_daily_cap(manager_id, adding)
+    +resolve_status(product) : status, action
+  }
+  class ProductHistoryService {
+    +log(product, action_type, performed_by, changes, reason) : ProductHistory
+  }
+}
+
+ProductService ..> ProductTypeRegistry : dispatch by type
+ProductService ..> DeletionPolicy : delete rules
+ProductService ..> ProductHistoryService : audit
+ProductService ..> Product
+DeletionPolicy ..> ProductHistory : daily-cap count
+
+' ---------- Read side ----------
+package "selectors / serializers" {
+  class ProductSelector {
+    +list_for_manager(...)
+    +get_for_manager(id)
+    +list_for_customer(...)
+    +get_for_customer(id)
+  }
+  class CUSTOMER_SORTS << (R,#DDDDFF) registry >>
+  class serialize_type_details << (F,#DDFFDD) function >>
+}
+ProductSelector ..> ProductTypeRegistry : related_names()
+ProductSelector ..> CUSTOMER_SORTS : sort policy
+serialize_type_details ..> ProductTypeRegistry : get(type).serialize()
+
+' ---------- Views (SRP split + thin dispatcher) ----------
+package "views" {
+  class ProductListCreateView {
+    +get(request)
+    +post(request)
+  }
+  class CustomerProductListView {
+    +get(request)
+  }
+  class ManagerProductListCreateView {
+    +get(request)
+    +post(request)
+  }
+  class ProductDetailView
+  class ProductDeleteView
+  class ProductHistoryListView
+}
+
+ProductListCreateView ..> CustomerProductListView : scope=customer
+ProductListCreateView ..> ManagerProductListCreateView : manager / POST
+CustomerProductListView ..> ProductSelector
+ManagerProductListCreateView ..> ProductService
+ManagerProductListCreateView ..> ProductSelector
+ProductDetailView ..> ProductService
+ProductDetailView ..> ProductSelector
+ProductDeleteView ..> ProductService
+ProductHistoryListView ..> ProductHistory
+
+@enduml

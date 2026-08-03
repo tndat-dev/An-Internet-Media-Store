@@ -1,0 +1,96 @@
+# Trivy Operator 0.32 / chart 0.34 configuration for the AIMS cluster.
+# Client/server mode keeps the vulnerability databases in one server instead
+# of making every multi-container scan Job contend for a shared local cache.
+image:
+  registry: mirror.gcr.io
+
+policiesBundle:
+  registry: mirror.gcr.io
+
+volumes:
+  - name: cache-policies
+    emptyDir: {}
+volumeMounts:
+  - name: cache-policies
+    mountPath: /tmp
+    readOnly: false
+
+operator:
+  builtInTrivyServer: true
+  scanJobsConcurrentLimit: 1
+  scanNodeCollectorLimit: 1
+  scanJobTimeout: 10m
+  scanJobsRetryDelay: 2m
+  # Scan pods are ephemeral evidence generators; reports persist as CRDs.
+  scanJobTTL: 30s
+  vulnerabilityScannerEnabled: true
+  vulnerabilityScannerScanOnlyCurrentRevisions: true
+  configAuditScannerEnabled: true
+  configAuditScannerScanOnlyCurrentRevisions: true
+  exposedSecretScannerEnabled: true
+  rbacAssessmentScannerEnabled: true
+  infraAssessmentScannerEnabled: true
+  clusterComplianceEnabled: true
+  sbomGenerationEnabled: true
+
+trivy:
+  mode: ClientServer
+  slow: false
+  ignoreUnfixed: true
+  timeout: 10m0s
+  image:
+    registry: mirror.gcr.io
+    repository: aquasec/trivy
+    tag: 0.72.0
+  dbRegistry: mirror.gcr.io
+  dbRepository: aquasec/trivy-db
+  javaDbRegistry: mirror.gcr.io
+  javaDbRepository: aquasec/trivy-java-db
+  registry:
+    mirror:
+      # The Operator chart expects a scalar here and serializes it for Trivy.
+      index.docker.io: mirror.gcr.io
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  server:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1
+        memory: 2Gi
+
+trivyOperator:
+  reportRecordFailedChecksOnly: true
+  # These two simulation images exist only in node-local containerd. The CI
+  # pipeline scans/SBOMs their registry builds; the in-cluster scanner cannot
+  # pull node-local tags until the GitLab Registry deployment replaces them.
+  excludeImages: "aims-backend:prod-sim,aims-frontend:prod-sim"
+  scanJobPodTemplateContainerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    privileged: false
+    readOnlyRootFilesystem: true
+
+nodeCollector:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+compliance:
+  cron: "0 */6 * * *"
+  reportType: summary
+  specs:
+    - k8s-cis-1.23
+    - k8s-nsa-1.0
+    - k8s-pss-baseline-0.1
+    - k8s-pss-restricted-0.1

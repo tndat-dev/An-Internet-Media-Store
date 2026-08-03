@@ -1,0 +1,3533 @@
+HANOI UNIVERSITY OF SCIENCE AND TECHNOLOGY
+School of Information and communications technology
+
+Software Requirement Specification
+Version 1.2
+
+AIMS Project
+Subject: ITSS Software Development
+
+Group 18
+Nguyễn Tuấn Đạt – 20235907
+Thành Hựu Đạt – 20235909
+Lê Tùng Lâm – 20235962
+Chu Tuấn Linh – 20235963
+Tạ Hải Luân – 20235969
+
+Hanoi, March 2026
+1
+
+Table of contents
+1 Introduction................................................................................................................... 2
+1.1 Objective................................................................................................................ 2
+1.2 Scope.....................................................................................................................2
+1.3 Glossary.................................................................................................................3
+1.4 References.............................................................................................................5
+2 Overall Description....................................................................................................... 6
+2.1 Survey....................................................................................................................6
+2.2 Overall requirements..............................................................................................7
+2.3 Business process...................................................................................................8
+3 Detailed Requirements............................................................................................... 11
+3.1 Use case 1........................................................................................................... 11
+3.2 Use case 2........................................................................................................... 16
+3.3 Use case 3........................................................................................................... 21
+3.4 Use case 4........................................................................................................... 25
+3.5 Use case 5........................................................................................................... 29
+3.6 Use case 6........................................................................................................... 33
+3.7 Use case 7........................................................................................................... 36
+4 Supplementary specification..................................................................................... 39
+4.1 Functionality...............................................................................................................39
+4.2 Usability..........................................................................................................39
+4.3 Reliability........................................................................................................39
+4.4 Performance...................................................................................................40
+4.5 Supportability................................................................................................. 40
+4.6 Other requirements........................................................................................ 40
+
+1
+
+1​ Introduction
+1.1​ Objective
+This Software Requirements Specification (SRS) defines the functional and
+non-functional requirements of the AIMS (An Internet Media Store) system. The
+purpose of this document is to provide a clear and complete description of what the
+system shall do so that analysts, designers, developers, testers, and project stakeholders
+can use it as a common reference throughout the software development process. The SRS
+is written based on the capstone project problem statement and the requirement analysis
+results produced by the team.
+This document is intended for the following audiences:
+-​ Lecturer and teaching assistants: to review and evaluate the correctness and
+completeness of the requirement analysis.
+-​ Project team members: to ensure a common understanding of the system
+requirements and project scope.
+-​ Designers and developers: to design and implement the system in accordance with
+the specified requirements.
+-​ Testers: to derive test cases and verify that the implemented software satisfies the
+stated requirements.
+This document focuses on the required behavior of the system and does not describe
+implementation details or design solutions.
+
+1.2​ Scope
+AIMS (An Internet Media Store) is an e-commerce software system developed as a web
+or desktop application for buying and selling physical media products. The current scope
+of the system includes the management and sale of four product types: books,
+newspapers, CDs, and DVDs. The system supports activities for different actors,
+including customers, product managers, and administrators.
+For customers, the system allows browsing products, searching and filtering products,
+viewing product details, adding items to cart, updating cart contents, placing orders,
+entering delivery information, paying for orders, viewing order information, and
+canceling orders before approval. The system also calculates delivery fees, generates
+
+2
+
+invoice information, records transactions, and sends email notifications related to order
+status and payment.
+For product managers, the system supports product and inventory-related operations such
+as adding, viewing, editing, deleting, or deactivating products according to business rules,
+manually adjusting stock with recorded reasons, reviewing pending orders, approving or
+rejecting orders, and querying product history records.
+For administrators, the system supports account and role management functions such as
+creating, viewing, deactivating, blocking, and unblocking user accounts, assigning roles,
+triggering password reset processes, and logging sensitive administrative actions.
+The system is expected to operate continuously with acceptable reliability and
+performance. It shall support up to 1,000 simultaneous customers, operate continuously
+for 300 hours without failure, recover within 1 hour after an incident, and provide a
+maximum response time of 2 seconds under normal conditions or 5 seconds during peak
+hours.
+At the current stage, the system is limited to physical media products and
+demonstration-level payment integration using PayPal Sandbox and VietQR. Other
+product categories, payment gateways, and notification methods may be supported in
+future versions but are outside the current implementation scope.
+
+1.3​ Glossary
+No
+
+Term
+
+Explanation
+
+Example
+
+Note
+
+1
+
+AIMS
+
+The software system being
+specified in this SRS, short for An
+Internet Media Store.
+
+AIMS storefront
+
+An e-commerce
+application for
+physical media
+products.
+
+2
+
+SRS
+
+Software Requirements
+Specification; a document that
+defines the functional and
+non-functional requirements of a
+software system.
+
+This SRS
+describes the
+requirements of
+AIMS.
+
+Project document
+
+3
+
+Product
+Manager
+
+A user role responsible for
+managing products, stock, and order
+approval or rejection.
+
+A Product
+Manager adds a
+new CD to the
+catalog.
+
+Internal actor
+
+3
+
+No
+
+Term
+
+Explanation
+
+Example
+
+4
+
+Administrator
+
+A user role responsible for
+managing user accounts, roles, and
+sensitive account-related actions.
+
+An Administrator
+blocks a user
+account.
+
+Internal actor
+
+5
+
+Customer
+
+An external user who browses
+products, places orders, pays, and
+views or cancels orders.
+
+A Customer adds
+a book to the cart.
+
+External actor
+
+6
+
+Physical
+media product
+
+A tangible media item sold in
+AIMS, including books,
+newspapers, CDs, and DVDs.
+
+A paperback novel
+or a Blu-ray DVD.
+
+Current supported
+product category
+
+7
+
+Cart
+
+A temporary collection of products
+selected by a customer for purchase.
+
+The cart contains
+2 books and 1
+DVD.
+
+Shopping cart
+
+8
+
+Order
+
+A purchase request submitted by a
+customer for one or more products.
+
+An order includes
+shipping and
+payment
+information.
+
+Business object
+
+9
+
+Pending
+processing
+
+The order state after successful
+payment and before approval or
+rejection by the Product Manager.
+
+A paid order
+awaits review in
+pending
+processing state.
+
+Order status
+
+10
+
+Invoice
+
+A temporary or final record
+showing purchased items,
+quantities, prices, VAT, shipping
+fee, and total payable amount.
+
+The invoice shows
+total price
+including VAT.
+
+Customer-facing
+information
+
+11
+
+VAT
+
+Value-added tax applied to product
+prices at the rate specified in the
+problem statement.
+
+Product prices are
+stored before 10%
+VAT.
+
+Business rule
+
+12
+
+Deactivated
+product
+
+A product whose stock is not zero
+and therefore cannot be deleted; it is
+marked unavailable for sale instead.
+
+A newspaper with
+remaining stock is
+deactivated
+instead of deleted.
+
+Product status
+
+4
+
+Note
+
+No
+
+Term
+
+Explanation
+
+Example
+
+Note
+
+13
+
+Product
+history
+
+The stored record of product
+addition, editing, and
+deletion/deactivation actions.
+
+Product managers
+can query product
+history.
+
+Audit-related term
+
+14
+
+PayPal
+Sandbox
+
+The testing environment of PayPal
+used in this course for payment and
+refund integration.
+
+A customer pays
+through PayPal
+Sandbox.
+
+Demonstration
+integration
+
+15
+
+VietQR
+
+The QR-code-based payment
+method integrated into AIMS for
+demonstration purposes.
+
+The system
+displays a VietQR
+code for payment.
+
+Payment method
+
+16
+
+Refund
+
+The return of the paid amount to the
+customer’s original payment
+method when an order is canceled
+or rejected.
+
+A PayPal-paid
+order is refunded
+automatically.
+
+For VietQR,
+refund is manual
+
+17
+
+Least
+privilege
+
+A security principle in which users
+are granted only the permissions
+necessary for their roles.
+
+Administrators
+assign only
+necessary roles to
+users.
+
+Security principle
+
+18
+
+Hashed
+password
+
+A protected representation of a
+password stored in the system
+instead of the plain text password.
+
+The administrator
+cannot view the
+user’s actual
+password.
+
+Security
+requirement
+
+1.4​ References
+1.​ [TEMPLATE-EN] SRS v1.2 (Lecturer: NGUYEN Thi Thu Trang)
+2.​ Lab&Assignment03-SRS (Lecturer: NGUYEN Thi Thu Trang)
+3.​ AIMS-ProblemStatement-ver3.1.1 (Lecturer: NGUYEN Thi Thu Trang)
+
+5
+
+2​ Overall Description
+2.1​ Survey
+AIMS provides a complete workflow for managing the lifecycle of physical media
+products, from catalog management to customer transactions. The system integrates
+internal operations such as inventory and account management with external services
+such as payment gateways.
+It supports customer interactions such as browsing, searching, filtering, and purchasing
+products, while also enabling internal users to manage products, orders, and system
+configurations. The system maintains logs and history records to ensure traceability and
+support auditing.
+List of Actors and Descriptions
+Actor
+Type
+
+Description
+
+Customer
+
+External End-users who interact with the system without authentication.
+They can browse and search for products, manage a shopping
+cart, provide delivery information, and complete purchases.
+They may also view or cancel orders through external
+communication channels.
+
+Product
+Manager
+
+Internal
+
+Responsible for managing the product catalog and inventory.
+They can create, update, deactivate, and remove products,
+review orders, and handle exceptional cases such as manual
+refunds or stock adjustments.
+
+Administrator
+
+Internal
+
+Manages user accounts and roles in accordance with security
+policies. They can create and manage accounts, assign roles,
+and oversee system access while ensuring sensitive information
+is protected.
+
+VietQR
+
+External A payment service provider that enables QR-based transactions
+System and communicates payment results asynchronously to the
+system.
+
+PayPal
+
+External A payment gateway that processes online transactions and
+System supports additional features such as automated refunds through
+its API.
+
+Email System
+
+External An external service used by AIMS to send invoice information,
+System transaction details, order status notifications, and selected
+account-related notifications to users
+
+6
+
+2.2​ Overall requirements
+2.2.1 Customer
+-​ Browse Products:​
+The customer browses the product catalog displayed by the system, including the
+initial random product list shown when the application starts. The customer can
+also search by title or category and filter by price range.
+-​ View Product Detailed Information:​
+The customer views the full information of a selected product, including general
+information and product-type-specific details. From this screen, the customer may
+also add the product to the cart.
+-​ Check Cart:​
+The customer reviews products currently added to the cart, including quantity,
+product price, and total price excluding VAT. During this process, the customer
+may change quantities or remove products from the cart. If stock is insufficient,
+the system shall notify the customer.
+-​ Place Order:​
+The customer proceeds from the cart to checkout. The system checks stock
+availability, requires delivery information, calculates shipping fees, generates
+invoice information, and then continues to payment.
+-​ Pay Order:​
+The customer completes payment using the default QR-based payment method or
+an alternative payment method through the PayPal gateway. After successful
+payment, the system records the transaction, sets the order to Pending Processing,
+and sends invoice and transaction information to the customer’s email.
+-​ View Order Info:​
+The customer can later access order details through the link sent by email. The
+displayed information includes invoice details, shipping information, and payment
+transaction information.
+-​ Cancel Order:​
+The customer may cancel an order before it is approved. If cancellation is
+accepted, the paid amount is refunded to the original payment method according
+to the refund rules of the payment gateway.
+2.2.2 Product Manager
+Product Manager must log in to access the management features corresponding to
+their roles
+
+7
+
+-​ Manage Products:​
+The Product Manager manages the lifecycle of physical media products in the
+catalog. This includes creating new products, updating existing products, deleting
+products when stock is zero, and changing product status to deactivated when
+deletion is not allowed. The system also stores product addition, editing, and
+deletion history, which can be queried by the Product Manager.
+-​ Adjust Stock:​
+The Product Manager manually adjusts stock quantity when necessary, for
+example when receiving new inventory or removing damaged items. The system
+requires a reason to be recorded for each manual stock change.
+-​ Check Order:​
+The Product Manager reviews orders in Pending Processing state. The system
+displays pending orders and their details for inspection.
+-​ Approve Order / Reject Order:​
+After checking a pending order, the Product Manager may approve or reject it. If
+an order is rejected, the system notifies the customer and handles refund support
+according to the payment method.
+2.2.3 Administrator
+-​ Manage Users:​
+The Administrator manages internal user accounts and roles, and must log in to
+access the management features corresponding to their roles. This includes
+creating accounts, viewing account information, deactivating accounts, blocking
+or unblocking users, assigning roles, and triggering password reset processes.
+Sensitive actions such as email updates and password resets must be logged, and
+affected users must be notified.
+
+2.3​ Business process
+2.3.1 Purchasing Process
+-​ Step 1: The Customer uses Browse Products to find suitable items and may use
+View Product Detailed Information to inspect the details of a selected product.
+
+8
+
+-​ Step 2: The Customer adds desired products to the cart and uses Check Cart to
+review selected items. During this process, the Customer may change quantities
+or remove products if necessary.
+-​ Step 3: The Customer selects Place Order. The system checks whether stock is
+sufficient for the requested quantities. If stock is not sufficient, the Customer must
+update the cart before continuing.
+-​ Step 4: If stock is sufficient, the system requires the Customer to provide delivery
+information. Each time the Customer enters or changes the delivery address, the
+system calculates or recalculates the shipping fee and updates the invoice
+information.
+-​ Step 5: The Customer continues with Pay Order by using the default QR code
+payment method or the alternative PayPal-based payment method. After
+successful payment, the system records the transaction, creates the order in
+Pending Processing state, and sends invoice and transaction information to the
+Customer’s email.
+-​ Step 6: After the order is created, the Customer may later use the email link to
+View Order Info or perform Cancel Order before the order is approved.
+2.3.2 Order Review Process
+-​ Step 1: The Product Manager performs Login to access the management portal.
+-​ Step 2: The Product Manager uses Check Order to retrieve pending orders and
+review detailed order information.
+-​ Step 3: Based on stock conditions and business constraints, the Product Manager
+decides to Approve Order or Reject Order.
+-​ Step 4: If the order is approved or rejected, the system sends a notification email
+to the customer. If the order is rejected, refund handling is performed according to
+the payment method capabilities.
+2.3.3 Product Management Process
+-​ Step 1: The Product Manager performs Login to access product management
+functions.
+-​ Step 2: The Product Manager uses Manage Products to create new products,
+update existing products, or delete selected products according to product rules.
+-​ Step 3: If a selected product has stock greater than zero, the system does not
+delete it. Instead, the product status is changed to Deactivated so it is no longer
+available for sale.
+
+9
+
+-​ Step 4: Whenever stock is manually changed, the Product Manager uses Adjust
+Stock and provides a reason for the adjustment. The system records this change
+for traceability.
+-​ Step 5: The system stores product addition, editing, and deletion history, and the
+Product Manager may query these records when needed.
+2.3.4 User Management Process
+-​ Step 1: The Administrator performs Login to access account management
+functions.
+-​ Step 2: The Administrator uses Manage Users to create accounts, assign roles,
+deactivate users, or block and unblock accounts.
+-​ Step 3: If password reset or another sensitive account action is required, the
+Administrator triggers the action and the system logs it and sends notification to
+the affected user.
+
+10
+
+3​ Detailed Requirements
+3.1​ Use case 1
+
+Use Case “Place order”
+1.​ Use case code
+UC001
+
+2.​ Brief Description
+This use case describes the sequential interaction between the customer and the
+AIMS software when the customer decides to finalize their shopping cart and place
+an order for media products.
+
+3.​ Actors
+-​ Customer
+
+4.​ Preconditions
+-​ There must be at least one available physical media product (Book, CD, DVD, etc.)
+currently placed in the customer's active shopping cart.
+
+5.​ Basic Flow of Events
+1.​ Customer proceeds to place an order.
+2.​ Software checks whether the available stock is sufficient to fulfill the
+customer's demand.
+3.​ Software asks customers to set up delivery information.
+4.​ Customer enters the delivery information (see Table 2).
+5.​ Software checks the input information.
+6.​ Software calculates and displays the delivery fee (see Table 4).
+7.​ Customer proceeds to pay the order.
+8.​ Software calls the “Pay order”
+9.​ Software calls the “Pay order”
+10.​Software calls the “Pay order”
+11.​ Customer completes the payment.
+12.​Software displays transaction information (see Table 5).
+13.​Software records the payment transaction information and the successfully
+paid order.
+
+11
+
+14.​Software puts the order in a pending processing state.
+15.​Software sends invoice and payment transaction information to the
+customer's email.
+
+6.​ Alternative flows
+Table 1 – Alternative flows of events for UC place order
+No
+
+Location
+
+Condition
+
+Action
+
+Resume location
+
+At step 2
+
+If the stock is
+insufficient
+
+▪​
+
+If there are any
+required fields
+left blank or
+invalid
+information
+
+▪​
+
+At Step 6
+
+If customers
+update the
+delivery
+address
+
+Software will recalculate
+and display the delivery
+fee.
+
+Resumes at Step 7
+
+At Step 8
+
+If customers
+adjust the
+delivery
+method or the
+items they wish
+to purchase
+
+Software recalculates the
+delivery fees and updates
+the corresponding invoice.
+
+Resumes at Step 8
+
+1.​
+System prompts the
+
+Use case end
+
+customer that the
+store is out of the
+product
+
+2.​
+At step 5
+
+Software asks
+
+Resumes at Step 4
+
+customers to update
+the information.
+
+3.
+
+4.
+
+12
+
+5.
+At Step 10
+
+If the customer
+does not wish
+to pay by QR
+code
+
+Customer may switch to
+an alternative payment
+method using a credit
+card.
+
+Resumes at Step 10
+
+At any
+step
+
+If customers go
+back to any
+step or exit the
+software during
+the ordering
+process
+
+Software returns to the
+previous step or exits the
+process entirely.
+
+Corresponding step or Use case
+ends
+
+6.
+
+7.​ Input data
+Table 2 – Input data of delivery information
+No
+
+Data fields
+
+Description
+
+Mandatory
+
+Valid condition
+
+Example
+
+1.​
+
+Receiver Name
+
+Full name of the
+person receiving
+the package
+
+Yes
+
+Not blank
+
+Not blank
+
+Phone
+
+Contact number
+
+Yes
+
+- 10 digits
+
+0383841363
+
+- May contains
+0914362222
+separator “.” and/or
+space and/or “-” in
+the middle of the
+phone number (one
+separator type),
+interleave with
+digits
+
+2.
+
+- Starts with “0”
+3.
+
+Province
+
+Delivery region or Yes
+city
+
+Chose from a
+drop-down list
+
+Ha Noi
+
+4.
+
+Address
+
+Detailed street and Yes
+house information
+
+Not blank
+
+3 Bo De
+street
+
+13
+
+5.
+
+Shipping
+Instructions
+
+Additional notes
+for the shipper
+
+No
+
+The house
+which is
+opposite
+the church
+
+Table 3-Input data of payment
+
+No
+
+Data fields
+
+Description
+
+Payment
+method
+
+Card details
+
+1.
+
+2.
+
+Mandatory
+
+Valid condition
+
+Example
+
+Choice between Yes
+default QR
+Code (VietQR)
+or alternative
+Credit Card
+(PayPal)
+
+Valid payment
+option
+
+Credit Card
+
+Required if the Yes
+customer
+switches to
+Credit card
+
+Valid card number,
+expiry, CVV
+
+1234-5678-9012-3456
+
+8.​ Output data
+Table 4-Output data of invoice screen
+No
+1.
+
+Data fields
+Title
+
+Description
+Title of the media
+product
+
+Display format
+Text
+
+Example
+"DVD phim mưa đỏ."
+
+-Comma for thousands
+separator
+2.
+
+Price
+
+Price of product
+
+-Positive integer
+
+12,500
+
+- Right alignment
+
+3.
+
+4.
+
+Quantity
+
+Amount
+
+Number of units of
+product
+
+-Positive number
+
+Total price of the
+corresponding product
+
+-Comma for thousands
+separators
+
+14
+
+2
+
+-Right alignment
+
+25,000
+
+-Positive integer
+-Right alignment
+
+5.
+
+Subtotal
+
+-Comma for thousands
+separators
+
+Total amount of all
+products
+
+-Positive integer
+
+150,000
+
+-Right alignment
+
+6.
+
+Shipping fee
+
+-Comma for thousands
+separators
+
+Calculated delivery
+cost based on
+weight/location
+
+-Positive integer
+
+30,000
+
+-Right alignment
+Comma for thousands
+separators
+7
+
+Total
+
+Final price
+
+-Positive integer
+
+180,000
+
+-Right alignment
+
+Table 5-Output data of transaction
+No
+
+Data fields
+
+1.
+
+Customer
+name
+
+Description
+
+Display format
+Text
+
+Example
+Thanh Huu Dat
+
+10 digits
+
+2.
+
+- May contains separator
+“.” and/or space and/or
+“-” in the middle of the
+phone number (one
+separator type),
+interleave with digits
+
+Phone
+number
+
+0914362222
+
+- Starts with “0”
+3.
+
+Province
+
+Text
+
+Ha Noi
+
+4.
+
+Address
+
+Text
+
+3 Bo De street
+
+15
+
+5.
+
+Total amount
+
+Right alignment Vietnamese
+currency (VNĐ) Vietnamese
+locale
+
+150,000
+
+6.
+
+Transaction
+ID
+
+5 Positive integer
+
+12345
+
+7.
+
+Transaction
+content
+
+Text
+
+You have a success
+transaction at
+05/10/2023
+
+8.
+
+Transaction
+date
+
+dd/mm/yy
+
+05/10/2023
+
+9.​ Postconditions
+- The successfully paid order is recorded and is in a pending processing state.
+- The payment transaction information is recorded.
+- The customer receives an email with the invoice and payment transaction
+information.
+- The quantity in stock of the purchased products is automatically updated.
+
+3.2​ Use case 2
+
+Use Case “Pay Order”
+1.​ Use case code
+UC002
+
+2.​ Brief Description
+This use case describes the interactions between the Customer, AIMS software,
+and VietQR when the customer desires to pay for a placed order using a QR code.
+AIMS software generates a VietQR QR code for the customer to scan and
+complete the payment via their banking application. VietQR then sends a payment
+callback to AIMS software to confirm the transaction result. This use case is
+
+16
+
+included by the use case “Place Order”. If the customer does not wish to pay by
+QR code, they may switch to credit card payment, which triggers the use case
+“Pay Order via PayPal”.
+
+3.​ Actors
+3.1​ Customer
+The customer is the end-user who scans the QR code using their banking application to
+complete the payment, or who may choose to switch to credit card payment via PayPal.
+
+3.2​
+
+VietQR
+
+VietQR is an external payment service provider. AIMS software calls VietQR’s API to
+generate the QR code. VietQR then sends a payment callback to AIMS software with the
+transaction result.
+
+4.​ Preconditions
+●​ The use case “Place Order” has been initiated and the customer has confirmed the
+invoice.
+●​ The invoice information — including the list of products in the cart, quantities,
+product prices, total product price excluding VAT, total product price including VAT,
+delivery fee (not subject to VAT), and total amount to be paid — has been calculated
+and temporarily saved by AIMS software.
+●​ AIMS software has valid VietQR API credentials configured.
+
+5.​ Basic Flow of Events
+Step 1. AIMS software calls the VietQR API to generate a QR code, providing the store’s
+bank account information, the total amount to be paid (from the temporarily saved
+invoice), and the transfer content corresponding to the order. (See Table B – Input data for
+QR code generation.)
+Step 2. VietQR returns the QR code to AIMS software.
+Step 3. AIMS software displays the payment screen to the customer, showing: the QR
+code; bank name and account number of the receiving account; transfer content; and the
+full invoice information including product list (title, quantity, unit price, amount per line),
+total product price excluding VAT, total product price including VAT, delivery fee (not
+subject to VAT), and total amount to be paid. (See Table A – Output data of payment
+screen.) The customer may also choose to switch to credit card payment via PayPal at this
+step.
+Step 4. Customer scans the QR code using their banking application and completes the
+transfer. (Note: In the test/sandbox environment, the customer triggers VietQR’s test
+callback API to simulate a successful payment transaction.)
+
+17
+
+Step 5. VietQR sends a payment callback to AIMS software with the transaction result,
+including: transaction ID, transaction content, transaction datetime, confirmed amount,
+and status. (See Table C – Input data from VietQR payment callback.)
+Step 6. AIMS software verifies that the callback status is “success” and that the confirmed
+amount matches the total amount on the invoice.
+6.​ Alternative flows
+Table 1-Alternative flows of events for UC Pay Order
+No
+
+Location
+
+Condition
+
+1
+
+At Step 1
+
+If the customer
+chooses to pay
+via PayPal
+(before the
+system calls
+VietQR)
+
+▪​
+
+AIMS software
+inserts the use case
+“Pay Order via
+PayPal”.
+
+Use case ends
+
+2
+
+At Step 1
+
+If VietQR fails
+to generate the
+QR code (e.g.,
+network error,
+service
+unavailable)
+
+▪​
+
+AIMS software
+notifies the customer
+that the payment
+service is temporarily
+unavailable.
+The customer may
+retry or exit the
+payment process.
+
+Use case ends
+
+3
+
+4
+
+5
+
+At Step 3
+
+At Step 4
+
+At any
+step
+
+Action
+
+▪​
+
+If the customer
+wishes to
+adjust the items
+in the order or
+the delivery
+information
+
+●​ AIMS software
+
+If the payment
+transaction is
+reported as
+failed by
+VietQR
+callback
+
+●​ AIMS software
+
+If the customer
+chooses to go
+
+●​ AIMS software
+
+returns the
+customer to the
+delivery
+information / cart
+screen.
+●​ The customer
+updates the order or
+delivery
+information.
+●​ AIMS software
+recalculates the
+delivery fee and
+updates the invoice
+accordingly.
+
+Resume location
+
+Resumes at Step 8 of UC Place
+Order
+
+At Step 3
+
+notifies the
+customer that the
+payment was
+unsuccessful.
+●​ The customer may
+retry the payment.
+returns the
+
+18
+
+Resumes at Step 8 of UC Place
+Order
+
+back or exit
+during the
+payment
+process
+
+customer to the
+invoice screen.
+●​ No payment is
+recorded.
+
+7. Input Data
+7.1. Input data for QR code generation request (AIMS to VietQR)
+Table B – Input data for VietQR QR code generation
+Mandat
+ory
+
+Valid
+condition
+
+Bank identifier of the
+receiving account
+
+Yes
+
+Valid
+VietQR bank
+code
+
+970422
+
+account_no
+
+Receiving bank account
+number
+
+Yes
+
+Non-empty
+numeric
+string
+
+0123456789
+
+3
+
+amount
+
+Total amount to be paid
+(VND), equal to invoice total
+
+Yes
+
+Positive
+integer
+
+123456
+
+4
+
+add_info
+
+Transfer description /
+transaction content for the
+order
+
+Yes
+
+Non-empty
+string, max
+25 characters
+
+AIMS Order #00123
+
+5
+
+callback_url
+
+URL where VietQR will
+send the payment result
+callback
+
+Yes
+
+Valid
+HTTPS URL
+
+https://aims.example
+.com/callback
+
+No
+
+Data fields
+
+Description
+
+1
+
+bank_id
+
+2
+
+Example
+
+7.2. Input data from VietQR payment callback (VietQR to AIMS)
+Table C – Input data from VietQR payment callback
+Mandat
+ory
+
+Valid condition
+
+Example
+
+Unique transaction
+identifier assigned by
+VietQR
+
+Yes
+
+Non-empty string
+
+TXN2023
+1005001
+
+transaction_conten
+t
+
+Transfer description
+confirmed by VietQR
+
+Yes
+
+Non-empty string
+
+AIMS
+Order
+#00123
+
+3
+
+transaction_dateti
+me
+
+Date and time the
+transaction was
+completed
+
+Yes
+
+Valid datetime, format
+dd/mm/yyyy hh:mm:ss
+
+05/10/202
+3
+14:30:00
+
+4
+
+amount
+
+Amount received and
+confirmed by VietQR
+
+Yes
+
+Positive integer, must
+match invoice total
+
+123456
+
+5
+
+status
+
+Result status of the
+payment transaction
+
+Yes
+
+"success" or "failed"
+
+success
+
+No
+
+Data fields
+
+Description
+
+1
+
+transaction_id
+
+2
+
+19
+
+8. Output Data
+8.1. Output data of payment screen (AIMS to Customer)
+Table A – Output data of payment screen
+No
+
+Data fields
+
+Description
+
+Display format
+
+Example
+
+1
+
+QR Code Image
+
+QR code image generated
+by VietQR for the customer
+to scan
+
+Image rendered on
+screen
+
+[QR image]
+
+2
+
+Bank name
+
+Name of the receiving bank
+
+String
+
+MB Bank
+
+3
+
+Account number
+
+Receiving bank account
+number
+
+Numeric string
+
+0123456789
+
+4
+
+Transfer content
+
+Transfer description
+corresponding to the order
+
+String
+
+AIMS Order
+#00123
+
+5
+
+Product title
+
+Title of each media product
+in the order
+
+String
+
+DVD Mat Biec
+
+6
+
+Quantity
+
+Quantity of each product in
+the order
+
+Positive integer,
+right-aligned
+
+2
+
+7
+
+Unit price
+
+Price per unit of each
+product (excluding VAT)
+
+Comma thousands
+separator, positive
+integer, right-aligned
+
+1,234,500
+
+8
+
+Amount
+
+Total per product line (unit
+price × quantity, excl. VAT)
+
+Comma thousands
+separator, positive
+integer, right-aligned
+
+1,234,500
+
+9
+
+Total product price
+(excl. VAT)
+
+Sum of all product amounts
+before VAT
+
+Comma thousands
+separator, right-aligned
+
+1,234,500
+
+10
+
+Total product price
+(incl. VAT)
+
+Total product price with
+10% VAT applied
+
+Comma thousands
+separator, right-aligned
+
+1,234,500
+
+11
+
+Delivery fee
+
+Shipping fee based on
+weight and delivery
+location. Not subject to
+VAT.
+
+Comma thousands
+separator, right-aligned
+
+36,360
+
+12
+
+Total amount to be
+paid
+
+Total = total product price
+(incl. VAT) + delivery fee
+
+Comma thousands
+separator, right-aligned
+
+1,234,500
+
+9. Postconditions
+9.1. Success
+●​ The payment transaction is confirmed as successful.
+●​ AIMS software records the payment transaction information (transaction ID, transaction
+content, transaction datetime) and the successfully paid order.
+●​ The order is placed in the “pending processing” state, awaiting review by the product
+manager.
+
+20
+
+●​ An email containing the invoice and payment transaction information is sent to the customer.
+
+9.2. Failure / Cancellation
+●​ If payment is unsuccessful or the customer exits during the payment process, no payment
+record is created and no order is saved.
+●​ Control returns to the use case “Place Order” at the invoice screen, allowing the customer to
+retry or go back.
+●​ Note: VietQR does not support an automated refund API. Therefore, if an order that was
+successfully paid via VietQR is subsequently cancelled (by the customer or rejected by the
+product manager), no automated refund will be triggered. In such cases, the product manager
+is responsible for issuing the refund manually (e.g., by contacting the customer and
+transferring funds outside the system). See the use case “Cancel Order” for the full
+cancellation flow.
+
+3.3​ Use case 3
+
+Use Case “Pay Order by Credit Card”
+1.​ Use case code
+UC003
+
+2.​ Brief Description
+This use case describes the interaction between the Customer and the AIMS
+Software, and between AIMS Software and PayPal Sandbox when the Customer
+wishes to pay for their order using a credit card via the PayPal payment gateway.
+This use case is an alternative payment flow within the Place Order use case
+(UC002), triggered when the customer chooses credit card as the payment method
+instead of the default QR code.
+
+3.​ Actors
+3.1​ Customer
+The end user who browses products, adds items to the cart, and initiates
+payment.
+
+3.2​
+
+AIMS Software
+The e-commerce system that orchestrates the payment flow.
+
+3.3​
+
+PayPal Sandbox
+External payment service that processes credit card transactions and refunds
+(sandbox/testing environment).
+
+4.​ Preconditions
+21
+
+1.​ The Customer has a valid cart with at least one item.
+2.​ All items in the cart have sufficient stock.
+3.​ The Customer has entered and confirmed valid delivery information.
+4.​ The AIMS Software has displayed the invoice screen with temporary order
+information.
+5.​ The Customer chooses to switch from the default QR code payment to credit
+card payment.
+
+5.​ Basic Flow of Events
+1.​ AIMS Software displays the credit card payment form (see Table A).
+2.​ Customer enters credit card information and submits the form.
+3.​ AIMS Software validates the input fields [is valid = true].
+4.​ AIMS Software sends payment request to PayPal (amount, currency, card info,
+order reference).
+5.​ PayPal processes the credit card payment.
+6.​ PayPal returns payment result to AIMS Software.
+7.​ AIMS Software checks whether the payment is successful [is successful = true].
+8.​ AIMS Software records payment transaction information.
+9.​ AIMS Software saves the successfully paid order (status = Pending
+Processing).
+10.​AIMS Software empties the cart.
+11.​AIMS Software performs the following two actions in parallel:
+-​ Displays the order confirmation screen.
+-​ Sends the invoice and transaction information to the Customer’s email.
+12.​AIMS Software displays the transaction information (see Table B).
+13.​Customer views the order confirmation screen.
+14.​Customer decides whether to cancel the order [cancel = no] → use case ends
+normally.
+
+6.​ Alternative flows
+Table N-Alternative flows of events for UC Pay Order by Credit Card
+No
+
+Location
+
+Condition
+
+Action
+
+1.​
+
+At Step 3
+
+Customer enters
+invalid or
+incomplete credit
+card information
+
+AIMS Software highlights
+invalid or missing fields
+and notifies the Customer.
+
+2.​
+
+Step 6
+
+PayPal returns a
+payment failure
+response [is
+successful =
+false]
+
+AIMS Software displays
+the payment failure
+reason to the Customer.
+Customer decides:
+●​
+[retry = true]:
+Return to Step 2 to
+
+22
+
+Resume location
+Resumes at Step 2
+
+Step 2 (retry) or Use case ends
+(cancel)
+
+re-enter credit card
+information.
+●​
+[retry = false]:
+Customer selects Cancel;
+use case ends.
+Steps
+1–4
+(before
+payment
+submissi
+on)
+
+Customer
+cancels or exits
+the payment
+process before
+submitting
+
+1.​
+Customer clicks Use case ends
+“Cancel” or closes the
+PayPal interface.
+2.​
+AIMS Software
+returns the Customer to
+the invoice /
+payment-selection screen.
+3.​
+No payment is
+charged; the order is NOT
+finalised.
+
+Step 13
+(after
+order
+confirm
+ation
+displaye
+d)
+
+Customer
+chooses to cancel
+the order after
+successful
+payment [cancel
+= yes]
+
+Use case ends
+1.​
+Customer
+confirms the cancellation
+request.
+2.​
+AIMS Software
+sends a full refund request
+to PayPal; PayPal
+processes the refund
+automatically.
+3.​
+AIMS Software
+updates the order status to
+“Cancelled” and sends a
+cancellation and refund
+notification to the
+Customer’s email.
+4.​
+Customer
+receives the cancellation
+and refund confirmation.
+
+7.​ Input data
+Table A-Input data of Pay Order by Credit Card
+No
+
+Data fields
+
+Description
+
+2.​
+
+Cardholder
+Name
+
+Full name as
+printed on
+the credit
+card
+
+Mandatory
+
+Yes
+
+23
+
+Valid condition
+
+Example
+
+Non-empty
+string; letters and
+spaces only
+
+Nguyen Tuan
+Dat
+
+2.
+
+Card
+Number
+
+16-digit
+credit card
+number
+
+Yes
+
+16 digits numeric
+
+411111111111111
+1
+
+3.
+
+Expiration
+Date
+
+Month/Year
+expiry date
+on the card
+
+Yes
+
+MM/YY format;
+must be a future
+date
+
+12/27
+
+3 or 4 digit
+security
+code on
+back of card
+
+Yes
+
+3–4 numeric
+digits
+
+123
+
+4.
+
+CVV /
+CVC
+
+Billing
+Address
+
+Address
+associated
+with the
+credit card
+account
+
+No
+
+Free text; max
+200 characters
+
+Dong Da, Ha Noi
+
+5.
+
+8.​ Output data
+Table B-Output data of Pay Order by Credit Card
+No
+
+Data fields
+
+Description
+
+Customer
+Name
+
+Full name of the
+customer who
+placed the order
+
+Plain text
+
+1.
+
+Nguyen Tuan
+Dat
+
+Phone
+Number
+
+Customer's contact
+phone number
+
+Plain text (10–11
+digits)
+
+0385388626
+
+Shipping
+Address
+
+Delivery address
+entered by the
+customer
+
+Plain text
+
+Luong Dinh
+Cua
+
+Province /
+City
+
+Destination
+province or city
+
+Plain text
+
+Ha Noi
+
+Total
+Amount
+
+Total amount paid
+including VAT and
+delivery fee
+
+Currency (VND)
+
+1,200,000 VND
+
+2.
+
+3.
+
+4.
+
+5.
+
+Display format
+
+24
+
+Example
+
+Alphanumeric string
+
+PAYID-123456
+
+6.
+
+Transaction Unique identifier
+ID
+returned by PayPal
+for this transaction
+
+Plain text
+
+Mua hang
+
+7.
+
+Transaction Description / note
+Content
+attached to the
+transaction
+
+8.
+
+Transaction Date and time the
+Datetime
+transaction was
+completed
+
+DD/MM/YYYY
+HH:MM:SS
+
+15/03/2026
+10:30:18
+
+9.​ Postconditions
+-​ The payment transaction is successfully processed and recorded by the AIMS
+Software.
+-​ The order is saved with status “Pending Processing”.
+-​ The Customer receives a confirmation email containing invoice details and
+transaction information.
+-​ The cart is cleared after successful order placement.
+
+3.4​ Use case 4
+
+Use Case “Create product”
+1.​
+
+Use case code
+UC004
+
+2.​
+
+Brief Description
+This use case describes the interaction between Product Manager and AIMS software
+when Product Manager wishes to create a new product in the system
+
+3.​
+
+Actors
+3.1.​ Name of Actor 1​
+Product Manager
+4.​ Preconditions
+-​
+
+Product Manager has logged in to access the features corresponding to their role
+25
+
+5.​
+
+Basic Flow of Events
+1.​ Product Manager requests to add a new product.
+2.​ AIMS software displays the product information input form.
+3.​ Product Manager enters the common product information, including title,
+category, general description, physical attributes, weight, barcode, original
+value, and current price.
+4.​ Product Manager selects the product type: Book, Newspaper, CD, or DVD.
+5.​ AIMS software displays the corresponding type-specific fields
+6.​ Product Manager enters the required type-specific information and any
+optional additional information
+7.​ Product Manager submits the product information.
+8.​ AIMS software validates all entered data, including required fields, business
+rules, value ranges, and data format.
+9.​ AIMS software saves the new product in the database.
+10.​AIMS software stores the history of product creation.
+11.​AIMS software displays a successful creation notification.
+
+6.​
+
+Alternative flows
+Table 1 - Alternative flows of events for UC Create product
+
+No
+
+Location
+
+Condition
+
+Action
+
+Resume location
+
+1.​
+
+At Step 8
+
+If the input does
+not comply
+with the rules or
+the format is
+incorrect
+
+- AIMS software notifies
+the Product Manager
+which data fields are
+invalid or missing, such as
+blank mandatory fields,
+invalid date format,
+invalid dimensions or
+weight, or current price
+outside the allowed range.
+
+Resumes at step 3 (for common
+fields) or step 6 (for
+type-specific fields)
+
+- Product Manager
+corrects the information.
+2.​
+
+At any step
+before
+Step 9
+
+If Product
+Manager
+cancels the
+operation
+
+7.​
+
+Input data
+
+AIMS software does not
+create the product and
+discards the unsaved input.
+
+26
+
+Use case ends
+
+Table A - Input data of product information
+No
+
+Data fields
+
+Description
+
+Mandatory
+
+1.​
+
+Title
+
+Name of the
+product
+
+Yes
+
+Not blank
+
+Doraemon Vol. 1
+
+2.​
+
+Category /
+Product type
+
+Product
+classification
+
+Yes
+
+Must be one of:
+Book, Newspaper,
+CD, DVD
+
+Book
+
+3.​
+
+General
+description
+
+General
+description of
+the product,
+such as
+condition or
+color
+
+Yes
+
+Not blank
+
+New, yellow cover
+
+4.​
+
+Physical
+attributes
+
+Height, width,
+length, and
+weight
+
+Yes
+
+All values are
+positive numbers
+
+20 cm x 10 cm x 3 cm; 200
+g
+
+5.​
+
+Barcode
+
+Product
+barcode
+
+Yes
+
+Not blank
+
+8934567
+
+6.​
+
+Original
+value
+
+Original value
+before VAT
+
+Yes
+
+Positive number;
+excludes 10% VAT
+
+100000 VND
+
+7.​
+
+Current price
+
+Selling price
+before VAT
+
+Yes
+
+Must be between
+30% and 150% of
+original value;
+excludes 10% VAT
+
+90000 VND
+
+8.​
+
+Book details
+
+Author(s),
+cover type,
+publisher,
+publication
+date
+
+Yes if type =
+Book
+
+Required fields not
+blank
+
+Author: Smith; Cover type:
+Paperback; Publisher: Bach
+Khoa; Publication date:
+15/03/2026
+
+9.​
+
+Book
+additional
+details
+
+Number of
+pages,
+language,
+genre
+
+No
+
+Optional
+
+250 pages; Vietnamese;
+Comic
+
+27
+
+Valid condition
+
+Example
+
+10.​
+
+Newspaper
+details
+
+Editor-in-chief
+, publisher,
+publication
+date
+
+Yes if type =
+Newspaper
+
+Required fields not
+blank
+
+Editor-in-chief: Nguyen
+Van A; Publisher: Thanh
+Nien; Publication date:
+15/03/2026
+
+11.​
+
+Newspaper
+additional
+details
+
+Issue number,
+publication
+frequency,
+ISSN,
+language,
+sections
+
+No
+
+Optional
+
+Weekly; ISSN 1234-5678
+
+12.​
+
+CD details
+
+Artists, record
+label, track
+list, genre
+
+Yes if type =
+CD
+
+Required fields not
+blank; each track
+must have title and
+length
+
+Artist: MCK; Record label:
+RPT; Track: 99%, 3m20s;
+Genre: Rap
+
+13.​
+
+CD additional
+details
+
+Release date
+
+No
+
+Optional
+
+20/05/2025
+
+14.​
+
+DVD details
+
+Disc type,
+director,
+runtime,
+studio,
+language,
+subtitles
+
+Yes if type =
+DVD
+
+Required fields not
+blank
+
+Disc type: Blu-ray;
+Director: Nguyen A;
+Runtime: 120 min
+
+15.​
+
+DVD
+additional
+details
+
+Release date,
+genre
+
+No
+
+Optional
+
+15/03/2024; Action
+
+8.​
+
+Output data
+Table B - Output data of product creation
+
+No
+
+Data fields
+
+Description
+
+Display format
+
+28
+
+Example
+
+1
+
+Success
+confirmation
+
+Notification that the
+product was created
+successfully
+
+Text
+
+"Product has been
+created successfully."
+
+2
+
+Invalid data
+notification
+
+Notification indicating
+missing or invalid fields
+or violated business rules
+
+Text
+
+"Publication date
+format is incorrect."
+
+3
+
+Created
+product
+information
+
+Saved product
+information for
+confirmation
+
+Text / detail view
+
+Title, type, barcode,
+current price
+
+9.​
+
+Postconditions
+
+-​ A new product is successfully created and saved in the system.
+-​ The history of product creation is stored and can later be queried by the Product
+Manager.
+
+-​ If the operation is cancelled, no product is created and the system state remains
+unchanged.
+
+3.5​ Use case 5
+
+Use Case “Update product”
+1.​ Use case code
+UC005
+
+2.​ Brief Description
+This use case describes the interaction between Product Manager and AIMS Software
+when the Product Manager wishes to update the information of an existing product.
+
+3.​ Actors
+3.1​ Name of Actor 1
+Product Manager
+
+4.​ Preconditions
+-​ Product Manager has logged in successfully
+-​ The selected product already exists in the system
+
+29
+
+5.​ Basic Flow of Events
+1.​ Product Manager requests to update a product
+2.​ AIMS software displays the list of products
+3.​ Product Manager selects one product to update
+4.​ AIMS software displays the current product information
+5.​ Product Manager updates the product information
+6.​ Product Manager submits the updated information
+7.​ AIMS software validates the updated data, including required fields, business
+rules, value ranges, and format
+8.​ AIMS software updates the product information in the database.
+
+9.​ AIMS software stores the history of product update.
+10.​AIMS software displays a successful update notification.
+6.​ Alternative flows
+Table 2 - Alternative flows of events for UC Update Product
+No
+
+Location
+
+Condition
+
+Action
+
+1
+
+At Step 3
+
+If the Product
+Manager attempts to
+edit more than one
+product at a time
+
+1.​
+
+At Step 7
+
+Updated information
+is invalid,
+incomplete, or
+wrongly formatted
+
+3
+
+At any step
+before
+Step 8
+
+Product Manager
+cancels the operation
+
+AIMS software rejects the
+action and allows updating
+only one product at a time.
+
+AIMS software notifies the
+Product Manager about the
+invalid fields or violated
+rules.
+AIMS software does not
+update the product.
+
+Resume location
+Resume at Step 2
+
+Resume at Step 5
+
+Use case ends
+
+7.​ Input data
+Table C - Input data of product update
+No
+
+Data fields
+
+Description
+
+Mandatory
+
+Valid condition
+
+Example
+
+1
+
+Product ID
+
+ID of selected
+product
+
+Yes
+
+Must exist in the
+system
+
+P001
+
+30
+
+2
+
+Title
+
+Name of the
+product
+
+Yes
+
+Not blank
+
+Doraemon Vol. 1
+
+3
+
+Category /
+Product type
+
+Product
+classification
+
+Yes
+
+Must be Book,
+Newspaper, CD, or
+DVD
+
+Book
+
+4
+
+General
+description
+
+General
+description of
+the product
+
+Yes
+
+Not blank
+
+New edition
+
+5
+
+Physical
+attributes
+
+Height, width,
+length, and
+weight
+
+Yes
+
+Positive numbers
+
+20 cm x 10 cm x 3 cm; 220
+g
+
+6
+
+Barcode
+
+Product
+barcode
+
+Yes
+
+Not blank
+
+8934567
+
+7
+
+Original
+value
+
+Original value
+before VAT
+
+Yes
+
+Positive number
+
+100000 VND
+
+8
+
+Current price
+
+Selling price
+before VAT
+
+Yes
+
+Between 30% and
+150% of original
+value; excludes 10%
+VAT
+
+95000 VND
+
+9
+
+Book details
+
+Author(s),
+cover type,
+publisher,
+publication
+date
+
+Yes if type =
+Book
+
+Required fields not
+blank
+
+Smith; Hardcover; Bach
+Khoa; 15/03/2026
+
+10
+
+Book
+additional
+details
+
+Number of
+pages,
+language,
+genre
+
+No
+
+Optional
+
+250; English; Comic
+
+11
+
+Newspaper
+details
+
+Editor-in-chief
+, publisher,
+publication
+date
+
+Yes if type =
+Newspaper
+
+Required fields not
+blank
+
+Nguyen Van A; Thanh
+Nien; 15/03/2026
+
+31
+
+12
+
+Newspaper
+additional
+details
+
+Issue number,
+publication
+frequency,
+ISSN,
+language,
+sections
+
+No
+
+Optional
+
+No. 25; Weekly
+
+13
+
+CD details
+
+Artists, record
+label, track
+list, genre
+
+Yes if type =
+CD
+
+Required fields not
+blank; each track has
+title and length
+
+MCK; RPT; Track 1: 99% 3m20s
+
+14
+
+CD additional
+details
+
+Release date
+
+No
+
+Optional
+
+20/05/2025
+
+15
+
+DVD details
+
+Disc type,
+director,
+runtime,
+studio,
+language,
+subtitles
+
+Yes if type =
+DVD
+
+Required fields not
+blank
+
+Blu-ray; Nguyen A; 120
+min
+
+16
+
+DVD
+additional
+details
+
+Release date,
+genre
+
+No
+
+Optional
+
+15/03/2024; Action
+
+8.​ Output data
+Table D - Output data of product update
+No
+
+Data fields
+
+Description
+
+Display format
+
+1
+
+Success
+confirmation
+
+Notification that the
+product was updated
+successfully
+
+Text
+
+"Product has been
+updated successfully."
+
+2
+
+Invalid data
+notification
+
+Notification indicating
+invalid fields or violated
+business rules
+
+Text
+
+"Current price must be
+between 30% and 150%
+of original value."
+
+3
+
+Updated
+product
+information
+
+Updated product
+information for
+confirmation
+
+Text / detail view
+
+Updated title, price,
+publication date
+
+32
+
+Example
+
+4
+
+Update
+history record
+
+Confirmation that the
+update action has been
+logged in product history
+
+Text / internal record
+
+"Update history stored."
+
+9.​ Postconditions
+-​ Product information is successfully updated in the system
+-​ The history of product editing is stored and can be queried by the Product Manager
+-​ If the operation is cancelled, no product information is changed
+
+3.6​ Use case 6
+
+Use Case “Delete product”
+1.​ Use case code
+UC006
+
+2.​ Brief Description
+This use case describes the interaction between Product Manager and AIMS software
+when the Product Manager wishes(es) to delete products from the system.
+
+3.​ Actors
+3.1​ Name of Actor 1
+Product Manager
+
+4.​ Preconditions
+-​ Product Manager has logged in successfully
+-​ The selected product already exists in the system
+
+5.​ Basic Flow of Events
+1.​ Product Manager requests to delete product(s).
+
+33
+
+2.​ AIMS Software displays the product list.
+3.​ Product Manager selects one or more products to delete.
+4.​ AIMS Software checks that the number of selected products does not exceed 10
+products per request.
+5.​ AIMS Software checks that the Product Manager has not exceeded the limit of 20
+deleted products per day.
+6.​ AIMS Software checks the stock quantity of each selected product.
+
+7.​ AIMS Software deletes all selected products whose stock quantity is equal to 0.
+8.​ AIMS Software stores the deletion history.
+9.​ AIMS Software notifies the Product Manager of the deletion result
+6.​ Alternative flows
+Table 3 - Alternative flows of events for UC Delete Product
+No
+
+Location
+
+Condition
+
+Action
+
+1
+
+At Step 4
+
+If the Product
+Manager selects
+more than 10
+products in one
+request
+
+AIMS Software notifies
+the Product Manager that
+the request exceeds the
+allowed limit
+
+Resumes at Step 3
+
+2
+
+At Step 5
+
+If deleting the
+selected
+products causes
+the Product
+Manager to
+exceed the limit
+of 20 deleted
+products per
+day
+
+AIMS Software notifies
+the Product Manager that
+the daily deletion limit has
+been exceeded
+
+Use case ends
+
+3
+
+At Step 6
+
+If one or more
+selected
+products have
+stock quantity
+greater than 0
+
+-​
+
+-​
+
+AIMS software
+changes the status
+of those products
+to "deactivated"
+meaning it will
+no longer be
+available for sale
+AIMS software
+stores this change
+in product history
+and notifies the
+Product Manager
+of the result
+
+34
+
+Resume location
+
+Resume at Step 8
+
+4
+
+At any step
+before
+Step 7
+
+If the Product
+Manager
+cancels the
+delete operation
+
+AIMS Software does not
+delete or deactivate any
+product
+
+Use case ends
+
+7.​ Input data
+Table E - Input data of product deletion
+No
+
+Data fields
+
+Description
+
+Mandatory
+
+Valid condition
+
+Example
+
+1
+
+Selected
+products
+
+List of
+products
+chosen for
+deletion
+
+Yes
+
+Maximum 10
+products per request
+
+[P001, P002]
+
+2
+
+Daily deletion
+count
+
+Number of
+products
+already deleted
+on the current
+day by the
+same Product
+Manager
+
+Yes
+
+Total deleted
+products per day
+must not exceed 20
+
+12
+
+3
+
+Stock
+quantity
+
+Current stock
+quantity of
+each selected
+product
+
+Yes
+
+Product can only be
+deleted if stock = 0
+
+0
+
+8.​ Output data
+Table F - Output data of product deletion
+No
+
+Data fields
+
+Description
+
+Display format
+
+1
+
+Invalid
+notification
+
+Notification when the
+delete operation violates
+business rules
+
+Text
+
+"Cannot delete more
+than 10 products in one
+request."
+
+2
+
+Daily limit
+notification
+
+Notification when daily
+deletion limit is
+exceeded
+
+Text
+
+"Cannot delete more
+than 20 products per
+day."
+
+35
+
+Example
+
+3
+
+Product status
+
+Status shown for
+products that cannot be
+deleted because stock is
+not zero
+
+Text
+
+"Deactivated"
+
+4
+
+Deletion
+result
+
+Result summary of the
+operation
+
+Text
+
+"3 products deleted, 2
+products deactivated."
+
+5
+
+Deletion
+history record
+
+Confirmation that
+deletion/deactivation
+actions were logged
+
+Text / internal record
+
+"Deletion history
+stored."
+
+9.​ Postconditions
+-​ Selected products are deleted or deactivated in the database
+-​ The history of product deletion is stored and can be queried by the Product Manager
+-​ If the operation is cancelled or rejected due to rule violations, the system state remains
+unchanged
+
+3.7​ Use case 7
+
+36
+
+Use Case “View Product Detail”
+1. Use case code
+UC007
+
+2. Brief Description
+This use case describes how a customer views the detailed information of a
+selected product, including general product information and type-specific
+information depending on the product type.
+
+3. Actors
+Customer
+3.1
+
+Name of Actor 1
+
+Product Manager
+4. Preconditions
+The customer has accessed the AIMS system and the product list has
+been displayed on the system
+5. Basic Flow of Events
+1. The actor accesses the product list
+2. The customer selects a product to view
+3. The system receives the request to view the product detail
+4. The system retrieves the product information from the database
+5.
+
+The system displays the detail information of the product to the
+customer
+
+6. Alternative flows
+Table N-Alternative flows of events for View Product Detail
+No
+
+Location
+At Step 4
+
+Condition
+The
+
+selected
+
+product
+
+does
+
+Action
+System display an
+error message that
+
+not exist
+
+37
+
+Resume location
+Use case ends
+
+the product is not
+found
+At Step 5
+
+The
+
+selected
+
+product
+
+System
+
+is
+
+informs
+
+Use
+
+the customer that
+
+unavaiable
+
+case
+
+ends
+
+resumes at Step 1/2
+
+the product is no
+longer
+
+available
+
+for sale
+At step 4
+
+A system error
+
+System
+
+occurs
+
+an error message
+
+while
+
+displays
+
+Use case ends
+
+retrieveing
+product details
+
+7. Input data
+Table A-Input data of View Product Detail
+No
+
+Data
+
+Description
+
+fields
+
+Mandator
+
+Valid condition
+
+Example
+
+MUST
+
+P888
+
+y
+
+Selected
+
+Product
+
+product
+
+selected by
+
+YES
+
+correspond to an
+
+the
+
+existing product
+
+customer
+
+in the system
+
+8. Output data
+Table B-Output data of View Product Detail
+No
+
+Data
+
+Description
+
+Display format
+
+Example
+
+fields
+1 Title
+
+Product title
+
+Text
+
+One piece
+
+2 Category
+
+Product category
+
+Text
+
+Book
+
+3 Price
+
+Current price of
+
+Currency
+
+888888 VNĐ
+
+the product
+
+9. Postconditions
+The detailed information of the selected product is displayed to the customer
+
+38
+
+or
+
+4​ Supplementary specification
+4.1 Functionality
+-​ Authentication & Access: Administrators and product managers must log in to
+access role-specific features. Administrators are responsible for managing user
+accounts in accordance with the principle of least privilege and data protection
+standards. Administrators may trigger password reset processes but cannot access
+users' actual passwords, as all passwords are securely hashed. For customers, no
+login is required.
+-​ Auditing & Logging: The software will store the history of products addition,
+editing and deletion. Product managers can query these histories whenever they
+want. Manual stock adjustments must be performed by the product manager, and
+the reason for the stock change must be explicitly recorded. The software records
+the payment transaction information and the successfully paid order. Any
+sensitive administrative actions, such as email updates or password resets, must
+be logged.
+-​ Notifications: Any sensitive administrative actions must be automatically notified
+to the affected users. The software will notify the product manager if any
+operation is invalid. The software will send invoice and payment transaction
+information to the customer's email. Once an order is either accepted or rejected, a
+notification email will be sent to the customer who placed the order. If an order
+paid via VietQR is rejected, the system will notify the Product Manager that a
+manual refund to the customer is required for this payment method.
+-​ System Constraints: The price of the product must always be between 30% and
+150% of the product's original value to avoid price inflation or undercutting. For
+security reasons, managers cannot delete more than twenty products per day. A
+product can only be deleted if its stock is equal to zero, otherwise it cannot be
+deleted; instead, its status will be changed to "deactivated".
+
+4.2 Usability
+-​ Ease of Use: The e-commerce software operates 24/7 allowing new users to easily
+familiarize themselves.
+-​ Navigation Flexibility: Customers can go back to any step or exit the software
+during the ordering process.
+
+4.3 Reliability
+-​ Availability: The software operates 24/7.
+-​ Fault Tolerance: This software can operate continuously for 300 hours without
+failure.
+
+39
+
+-​ Recoverability: The software can resume normal operation within a maximum of
+1 hour after an incident.
+
+4.4 Performance
+-​ Capacity: This software can serve up to 1,000 customers simultaneously without
+significantly reducing performance.
+-​ Response Time: The maximum response time of the software is 2 seconds under
+normal conditions or 5 seconds during peak hours.
+
+4.5 Supportability
+-​ Extensibility for Products: Currently, AIMS supports only the buying and selling
+of physical media products, including books, newspapers, CDs, and DVDs (other
+types of products may be supported in the future).
+-​ Extensibility for Services: Other payment gateways may be supported in the
+future. In the future, additional notification methods such as SMS or push
+notifications may also be supported.
+
+4.6 Other requirements
+-​ Platform: AIMS is an e-commerce software (web or desktop application).
+-​ Integration: Users will integrate payments using PayPal Sandbox and VietQR (via
+QR code). Currently, since only PayPal supports the refund API, the system does
+not handle refunds for VietQR payments. In such cases, the Product Manager is
+responsible for issuing refunds manually (e.g., contacting the customer and
+transferring funds outside the system).
+
+40
+
+

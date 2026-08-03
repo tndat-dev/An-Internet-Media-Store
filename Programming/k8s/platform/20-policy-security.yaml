@@ -1,0 +1,238 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: production-waypoint-seccomp
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: add-runtime-default-to-waypoint
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+              selector:
+                matchLabels:
+                  gateway.networking.k8s.io/gateway-name: aims-waypoint
+      mutate:
+        patchStrategicMerge:
+          spec:
+            securityContext:
+              seccompProfile:
+                type: RuntimeDefault
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: production-baseline-enforce
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: block-privileged-and-host-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      validate:
+        message: Privileged containers and host namespaces are forbidden in production.
+        pattern:
+          spec:
+            =(hostIPC): false
+            =(hostNetwork): false
+            =(hostPID): false
+            containers:
+              - securityContext:
+                  =(privileged): false
+                  =(allowPrivilegeEscalation): false
+                  capabilities:
+                    drop:
+                      - ALL
+    - name: forbid-latest-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      validate:
+        message: Mutable latest tags are forbidden in production.
+        foreach:
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: production-runtime-hardening
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-runtime-hardening
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+              selector:
+                matchLabels:
+                  aims.hust.vn/runtime-hardened: "true"
+      validate:
+        message: Production pods should run non-root with seccomp and a read-only root filesystem.
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault | Localhost
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
+                  runAsNonRoot: true
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop:
+                      - ALL
+---
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredruntimehardening
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredRuntimeHardening
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties: {}
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredruntimehardening
+
+        array_contains(arr, expected) {
+          some i
+          arr[i] == expected
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          container := input.review.object.spec.containers[_]
+          security_context := object.get(container, "securityContext", {})
+          object.get(security_context, "allowPrivilegeEscalation", true) != false
+          msg := sprintf("container %q must disable privilege escalation", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          container := input.review.object.spec.containers[_]
+          security_context := object.get(container, "securityContext", {})
+          capabilities := object.get(security_context, "capabilities", {})
+          drops := object.get(capabilities, "drop", [])
+          not array_contains(drops, "ALL")
+          msg := sprintf("container %q must drop all Linux capabilities", [container.name])
+        }
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aims-zero-trust
+  namespace: production
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: aims
+  ingress:
+    # Ambient encrypts pod-to-pod traffic through ztunnel. At the destination
+    # Cilium sees the node identity and the HBONE listener, not the source pod.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "15008"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: production
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: istio-ingress
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: production
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "15008"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: keycloak
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+    - toCIDR:
+        - 0.0.0.0/0
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: aims-sensitive-exec
+  namespace: production
+spec:
+  kprobes:
+    - call: security_file_open
+      syscall: false
+      args:
+        - index: 0
+          type: file
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: Prefix
+              values:
+                - /etc/shadow
+                - /etc/kubernetes
+    - call: __x64_sys_execve
+      syscall: true
+      args:
+        - index: 0
+          type: string
+      return: true

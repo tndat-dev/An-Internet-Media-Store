@@ -1,0 +1,66 @@
+backendImage:
+  repository: aims-backend
+  tag: prod-sim
+  pullPolicy: IfNotPresent
+
+frontend:
+  replicas: 2
+  # Lab-only placement for the node-local prod-sim image. Set to {} after CI
+  # publishes the signed registry digest to all workers.
+  nodeSelector:
+    aims.hust.vn/frontend-image: prod-sim
+  image:
+    repository: aims-frontend
+    tag: prod-sim
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 750m
+      memory: 512Mi
+
+runtimeSecret: aims-runtime
+
+services:
+  - name: api-gateway
+    replicas: 2
+  - name: auth-service
+    replicas: 2
+  - name: catalog-service
+    replicas: 2
+  - name: cart-service
+    replicas: 2
+  - name: order-service
+    replicas: 2
+  - name: payment-service
+    replicas: 2
+    sandbox: true
+  - name: inventory-service
+    replicas: 2
+  - name: notification-service
+    replicas: 2
+    sandbox: true
+  - name: security-telemetry-service
+    replicas: 2
+    localhostProfiles: true
+
+integrations:
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
+  kafkaBusinessTopic: aims-business-events
+  kafkaSecurityTopic: aims-security-telemetry
+  redisHost: aims-redis-sentinel.production.svc.cluster.local
+  redisPort: "26379"
+  rabbitmqHost: aims-rabbitmq.production.svc.cluster.local
+  rabbitmqPort: "5672"
+  keycloakIssuer: http://keycloak-keycloakx-http.keycloak.svc.cluster.local/auth/realms/aims
+  otlpEndpoint: http://otel-collector-collector.observability.svc.cluster.local:4317
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: 750m
+    memory: 768Mi

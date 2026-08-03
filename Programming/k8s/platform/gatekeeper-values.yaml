@@ -1,0 +1,30 @@
+# The audit controller scans every resource in this multi-operator cluster.
+# 512Mi caused repeated OOMKills; give it a bounded 2Gi ceiling and avoid a
+# full audit every minute while keeping admission controllers unchanged.
+auditInterval: 300
+auditChunkSize: 250
+
+audit:
+  readinessTimeout: 5
+  nodeSelector:
+    kubernetes.io/os: linux
+    aims.io/node-pool: system
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+controllerManager:
+  nodeSelector:
+    kubernetes.io/os: linux
+    aims.io/node-pool: system
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule

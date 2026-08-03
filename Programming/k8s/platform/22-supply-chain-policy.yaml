@@ -1,0 +1,73 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: aims-verify-signed-slsa-images
+  annotations:
+    policies.kyverno.io/title: Verify AIMS Cosign signatures, SLSA provenance and SBOM
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+spec:
+  # The current lab image aims-backend:prod-sim is local and unsigned. Keep
+  # admission in Audit until the first GitLab registry pipeline has completed,
+  # then change this to Enforce.
+  validationFailureAction: Audit
+  background: true
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-gitlab-keyless-image-and-attestations
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      verifyImages:
+        - imageReferences:
+            - "registry.gitlab.com/jayyyyte/isd.20252-18/aims-*"
+          required: true
+          # Kyverno forbids mutation in Audit mode. Set true together with
+          # validationFailureAction=Enforce after the first signed release.
+          mutateDigest: false
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
+                    issuer: "https://gitlab.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://slsa.dev/provenance/v1
+              attestors:
+                - count: 1
+                  entries:
+                    - keyless:
+                        subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
+                        issuer: "https://gitlab.com"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ buildDefinition.buildType }}"
+                      operator: Equals
+                      value: https://gitlab.com/aims/buildtypes/container/v1
+                    - key: "{{ runDetails.builder.id }}"
+                      operator: Equals
+                      value: https://gitlab.com/aims/gitlab-runner/container-build@v1
+            - type: https://cyclonedx.org/schema
+              attestors:
+                - count: 1
+                  entries:
+                    - keyless:
+                        subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
+                        issuer: "https://gitlab.com"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ Data.bomFormat }}"
+                      operator: Equals
+                      value: CycloneDX

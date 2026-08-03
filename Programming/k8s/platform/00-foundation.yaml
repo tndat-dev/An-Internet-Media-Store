@@ -1,0 +1,90 @@
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: sandbox
+handler: runsc
+scheduling:
+  nodeSelector:
+    runtime.gvisor.dev/enabled: "true"
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ambient-hostprobes
+spec:
+  description: Allow Istio Ambient SNAT-ed kubelet health probes
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  endpointSelector: {}
+  ingress:
+    - fromCIDR:
+        - 169.254.7.127/32
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: production-strict
+  namespace: production
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ambient-hbone
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/name: aims-kafka-kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 15008
+          protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: aims-waypoint
+  namespace: production
+  labels:
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-guardrails
+  namespace: production
+spec:
+  hard:
+    requests.cpu: "12"
+    requests.memory: 24Gi
+    # Includes temporary maxSurge pods while all nine Rollouts canary together.
+    limits.cpu: "50"
+    limits.memory: 64Gi
+    persistentvolumeclaims: "30"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-defaults
+  namespace: production
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 500m
+        memory: 512Mi

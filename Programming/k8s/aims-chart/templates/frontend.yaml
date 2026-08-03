@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aims-frontend
+  namespace: production
+  labels:
+    app.kubernetes.io/name: aims-frontend
+    app.kubernetes.io/part-of: aims
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aims-frontend
+  namespace: production
+  labels:
+    app.kubernetes.io/name: aims-frontend
+    app.kubernetes.io/part-of: aims
+    istio.io/use-waypoint: aims-waypoint
+spec:
+  selector:
+    app: aims-frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aims-frontend
+  namespace: production
+  labels:
+    app.kubernetes.io/name: aims-frontend
+    app.kubernetes.io/part-of: aims
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: aims-frontend
+  template:
+    metadata:
+      labels:
+        app: aims-frontend
+        app.kubernetes.io/name: aims-frontend
+        app.kubernetes.io/part-of: aims
+        app.kubernetes.io/component: frontend
+        aims.hust.vn/runtime-hardened: "true"
+    spec:
+      serviceAccountName: aims-frontend
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+        appArmorProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: aims-frontend
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: aims-frontend
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: web
+          {{- if hasPrefix "sha256:" .Values.frontend.image.tag }}
+          image: {{ .Values.frontend.image.repository }}@{{ .Values.frontend.image.tag }}
+          {{- else }}
+          image: {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          resources:
+{{ toYaml .Values.frontend.resources | indent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aims-frontend
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: aims-frontend

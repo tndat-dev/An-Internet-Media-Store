@@ -1,0 +1,44 @@
+clusterName: aims-security
+nodeGroup: master
+replicas: 3
+roles:
+  - master
+  - ingest
+  - data
+  - remote_cluster_client
+opensearchJavaOpts: "-Xms512m -Xmx512m"
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+persistence:
+  enabled: true
+  storageClass: longhorn
+  size: 10Gi
+antiAffinity: hard
+antiAffinityTopologyKey: kubernetes.io/hostname
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+service:
+  type: ClusterIP
+sysctlInit:
+  enabled: false
+extraEnvs:
+  - name: DISABLE_INSTALL_DEMO_CONFIG
+    value: "false"
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: aims-opensearch-admin
+        key: OPENSEARCH_INITIAL_ADMIN_PASSWORD

@@ -1,0 +1,32 @@
+@startuml DeleteProduct_Sequence
+title Delete Product - Sequence (DeletionPolicy)
+
+actor "Product Manager" as PM
+participant "ProductDeleteView" as View
+participant "ProductDeleteSerializer" as Ser
+participant "ProductService" as Svc
+participant "DeletionPolicy" as Pol
+participant "Product (model)" as Prod
+participant "ProductHistoryService" as Hist
+
+PM -> View : POST /api/products/delete/ (product_ids)
+activate View
+View -> Ser : is_valid()
+Ser --> View : validated_data
+View -> Svc : delete_products(product_ids, manager_id)
+activate Svc
+Svc -> Pol : check_request_size(count)
+Svc -> Pol : check_daily_cap(manager_id, adding=count)
+Pol -> Pol : count today's DELETE/DEACTIVATE (ProductHistory)
+Svc -> Prod : fetch products; existence check
+loop each product
+  Svc -> Pol : resolve_status(product)
+  Pol --> Svc : status, action_type
+  Svc -> Prod : status = ...; save(update_fields)
+  Svc -> Hist : log(action_type, before/after)
+end
+Svc --> View : changed_products
+deactivate Svc
+View --> PM : 200 OK (ProductSerializer many)
+deactivate View
+@enduml

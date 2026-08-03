@@ -1,0 +1,199 @@
+stages:
+  - test
+  - build
+  - scan
+  - attest
+  - verify
+  - gitops
+
+variables:
+  BACKEND_IMAGE: "$CI_REGISTRY_IMAGE/aims-backend:$CI_COMMIT_SHA"
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/aims-frontend:$CI_COMMIT_SHA"
+  DOCKER_TLS_CERTDIR: "/certs"
+  COSIGN_YES: "true"
+
+default:
+  interruptible: true
+
+backend-test:
+  stage: test
+  image: python:3.12.11-slim
+  services:
+    - name: postgres:17.6-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: aims
+    POSTGRES_USER: aims
+    POSTGRES_PASSWORD: aims-ci
+    DATABASE_URL: postgresql://aims:aims-ci@postgres:5432/aims
+    DJANGO_SECRET_KEY: ci-only
+  before_script:
+    - pip install --no-cache-dir -r backend/requirements.txt
+  script:
+    - cd backend
+    - pytest -q
+
+frontend-test:
+  stage: test
+  image: node:22.18-alpine
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npm run lint
+    - npm run typecheck
+
+render-manifests:
+  stage: test
+  image:
+    name: alpine/helm:3.18.6
+    entrypoint: [""]
+  script:
+    - apk add --no-cache yq
+    - helm lint k8s/aims-chart
+    - helm template aims k8s/aims-chart --namespace production > aims-rendered.yaml
+    - yq -o=json -I=0 'select(.kind == "Rollout") | {"apiVersion":"v1","kind":"Pod","metadata":{"name":.metadata.name,"namespace":.metadata.namespace},"spec":.spec.template.spec}' aims-rendered.yaml > aims-pods.jsonl
+  artifacts:
+    paths: [aims-rendered.yaml, aims-pods.jsonl]
+    expire_in: 30 days
+
+build-images:
+  stage: build
+  image: docker:27.5.1-cli
+  services:
+    - name: docker:27.5.1-dind
+      command: ["--mtu=1450"]
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - docker build --pull -t "$BACKEND_IMAGE" backend
+    - docker build --pull --build-arg NEXT_PUBLIC_API_BASE_URL=/api -t "$FRONTEND_IMAGE" frontend
+    - docker push "$BACKEND_IMAGE"
+    - docker push "$FRONTEND_IMAGE"
+    - BACKEND_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$BACKEND_IMAGE")"
+    - FRONTEND_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$FRONTEND_IMAGE")"
+    - printf 'BACKEND_IMAGE_DIGEST=%s\nFRONTEND_IMAGE_DIGEST=%s\n' "$BACKEND_DIGEST" "$FRONTEND_DIGEST" > image-digests.env
+  artifacts:
+    reports:
+      dotenv: image-digests.env
+    paths: [image-digests.env]
+    expire_in: 30 days
+
+trivy-scan:
+  stage: scan
+  image:
+    name: aquasec/trivy:0.70.0
+    entrypoint: [""]
+  needs: [build-images]
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed "$BACKEND_IMAGE_DIGEST"
+    - trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed "$FRONTEND_IMAGE_DIGEST"
+    - trivy config --exit-code 1 --severity HIGH,CRITICAL k8s
+
+generate-sbom:
+  stage: scan
+  image:
+    name: anchore/syft:v1.35.0
+    entrypoint: [""]
+  needs: [build-images]
+  script:
+    - syft "$BACKEND_IMAGE_DIGEST" -o cyclonedx-json=backend-sbom.cdx.json
+    - syft "$FRONTEND_IMAGE_DIGEST" -o cyclonedx-json=frontend-sbom.cdx.json
+  artifacts:
+    paths:
+      - backend-sbom.cdx.json
+      - frontend-sbom.cdx.json
+    expire_in: 90 days
+
+kubesec-scan:
+  stage: scan
+  image:
+    name: kubesec/kubesec:v2.14.2
+    entrypoint: [""]
+  needs: [render-manifests]
+  script:
+    - |
+      : > kubesec-results.json
+      while IFS= read -r pod; do
+        printf '%s\n' "$pod" > /tmp/aims-pod.json
+        kubesec scan /tmp/aims-pod.json >> kubesec-results.json
+      done < aims-pods.jsonl
+    - test "$(grep -c '"score"' kubesec-results.json)" -gt 0
+    - |
+      ! grep -Eq '"score"[[:space:]]*:[[:space:]]*-' kubesec-results.json
+  artifacts:
+    when: always
+    paths: [kubesec-results.json]
+    expire_in: 30 days
+
+generate-slsa-provenance:
+  stage: attest
+  image: alpine:3.22.1
+  needs: [build-images, generate-sbom, trivy-scan, kubesec-scan]
+  before_script:
+    - apk add --no-cache jq
+  script:
+    - k8s/scripts/generate-slsa-provenance.sh backend "$BACKEND_IMAGE_DIGEST" backend-sbom.cdx.json backend-provenance.json
+    - k8s/scripts/generate-slsa-provenance.sh frontend "$FRONTEND_IMAGE_DIGEST" frontend-sbom.cdx.json frontend-provenance.json
+  artifacts:
+    paths:
+      - backend-provenance.json
+      - frontend-provenance.json
+      - backend-sbom.cdx.json
+      - frontend-sbom.cdx.json
+    expire_in: 90 days
+
+sign-and-attest:
+  stage: attest
+  image:
+    name: ghcr.io/sigstore/cosign/cosign:v3.0.2
+    entrypoint: [""]
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  needs: [build-images, generate-slsa-provenance]
+  script:
+    - cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$BACKEND_IMAGE_DIGEST"
+    - cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$FRONTEND_IMAGE_DIGEST"
+    - cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type cyclonedx --predicate backend-sbom.cdx.json "$BACKEND_IMAGE_DIGEST"
+    - cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type cyclonedx --predicate frontend-sbom.cdx.json "$FRONTEND_IMAGE_DIGEST"
+    - cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 --predicate backend-provenance.json "$BACKEND_IMAGE_DIGEST"
+    - cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 --predicate frontend-provenance.json "$FRONTEND_IMAGE_DIGEST"
+
+verify-supply-chain:
+  stage: verify
+  image:
+    name: ghcr.io/sigstore/cosign/cosign:v3.0.2
+    entrypoint: [""]
+  needs: [build-images, sign-and-attest]
+  script:
+    - CERT_IDENTITY="${CI_PROJECT_URL}//.gitlab-ci.yml@refs/heads/${CI_COMMIT_REF_NAME}"
+    - cosign verify --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$BACKEND_IMAGE_DIGEST"
+    - cosign verify --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$FRONTEND_IMAGE_DIGEST"
+    - cosign verify-attestation --type cyclonedx --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$BACKEND_IMAGE_DIGEST"
+    - cosign verify-attestation --type cyclonedx --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$FRONTEND_IMAGE_DIGEST"
+    - cosign verify-attestation --type slsaprovenance1 --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$BACKEND_IMAGE_DIGEST"
+    - cosign verify-attestation --type slsaprovenance1 --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CI_SERVER_URL" "$FRONTEND_IMAGE_DIGEST"
+
+update-gitops:
+  stage: gitops
+  image:
+    name: mikefarah/yq:4.47.2
+    entrypoint: [""]
+  needs: [build-images, verify-supply-chain]
+  resource_group: production-gitops
+  before_script:
+    - apk add --no-cache git
+    - git config user.name "AIMS GitOps Bot"
+    - git config user.email "aims-gitops@example.invalid"
+  script:
+    - BACKEND_REPOSITORY="${BACKEND_IMAGE_DIGEST%@*}"
+    - BACKEND_DIGEST="${BACKEND_IMAGE_DIGEST#*@}"
+    - FRONTEND_REPOSITORY="${FRONTEND_IMAGE_DIGEST%@*}"
+    - FRONTEND_DIGEST="${FRONTEND_IMAGE_DIGEST#*@}"
+    - yq -i '.backendImage.repository = strenv(BACKEND_REPOSITORY) | .backendImage.tag = strenv(BACKEND_DIGEST) | .frontend.image.repository = strenv(FRONTEND_REPOSITORY) | .frontend.image.tag = strenv(FRONTEND_DIGEST) | .frontend.nodeSelector = {}' k8s/aims-chart/values.yaml
+    - git add k8s/aims-chart/values.yaml
+    - git commit -m "deploy(production): ${CI_COMMIT_SHA}" || exit 0
+    - git push "https://gitlab-ci-token:${GITOPS_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

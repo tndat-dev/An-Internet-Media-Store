@@ -1,0 +1,21 @@
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: production-daily
+  namespace: velero
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  schedule: "0 2 * * *"
+  useOwnerReferencesInBackup: false
+  template:
+    includedNamespaces:
+      - production
+    storageLocation: default
+    defaultVolumesToFsBackup: true
+    snapshotVolumes: false
+    ttl: 720h
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: aims
+        backup.aims.io/tier: daily

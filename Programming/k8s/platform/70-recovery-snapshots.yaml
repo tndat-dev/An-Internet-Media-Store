@@ -1,0 +1,65 @@
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-fsck-cnpg-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-fsck
+spec:
+  volume: pvc-317bdd70-4bbc-44dc-bfa7-d3012c10ec15
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-fsck-minio-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-fsck
+spec:
+  volume: pvc-541f8751-4409-40f4-bc8f-5a75081158cd
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-fsck-opensearch-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-fsck
+spec:
+  volume: pvc-4566f03b-0f35-47a4-8aa8-332567b54b00
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-permission-fix-kafka-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-permission-fix
+spec:
+  volume: pvc-a9fc774d-ee2e-4a30-8e24-6875ddc07981
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-fsck-kafka-broker1-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-fsck
+spec:
+  volume: pvc-d7d67f67-052d-44da-89a2-08aeb39d227d
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-fsck-kafka1-20260801
+  namespace: longhorn-system
+  labels:
+    aims.hust.vn/recovery: pre-fsck
+spec:
+  volume: pvc-d7d67f67-052d-44da-89a2-08aeb39d227d
+  createSnapshot: true

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: aims
+description: AIMS microservice runtime for the production namespace
+type: application
+version: 0.3.0
+appVersion: "1.0.0"
+dependencies: []

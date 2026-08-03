@@ -1,0 +1,49 @@
+global:
+  enabled: true
+injector:
+  enabled: true
+  replicas: 2
+  nodeSelector:
+    aims.io/node-pool: system
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+server:
+  image:
+    repository: hashicorp/vault
+    tag: 2.0.3
+  dataStorage:
+    enabled: true
+    size: 5Gi
+    storageClass: longhorn
+  auditStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: longhorn
+  ha:
+    enabled: true
+    replicas: 3
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+        listener "tcp" {
+          tls_disable = 1
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+        storage "raft" {
+          path = "/vault/data"
+        }
+        service_registration "kubernetes" {}
+  nodeSelector:
+    aims.io/workload: "true"
+  service:
+    enabled: true
+    type: ClusterIP
+ui:
+  enabled: true
+  serviceType: NodePort
+  serviceNodePort: 30200

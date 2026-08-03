@@ -1,0 +1,14 @@
+django
+djangorestframework
+django-cors-headers
+requests
+psycopg[binary]
+dj-database-url
+python-dotenv
+pytest
+pytest-django
+tabulate
+PyJWT==2.13.0
+qrcode[pil]
+gunicorn
+whitenoise
