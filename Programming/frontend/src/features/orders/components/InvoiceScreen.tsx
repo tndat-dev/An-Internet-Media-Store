@@ -35,13 +35,11 @@ export function InvoiceScreen() {
 
   useEffect(() => {
     const orderId = getCurrentOrderId();
-    if (!orderId) {
-      setError("Create a draft order from the cart before reviewing invoice.");
-      setIsLoading(false);
-      return;
-    }
+    const invoiceRequest = orderId
+      ? getInvoice(orderId)
+      : Promise.reject(new Error("Create a draft order from the cart before reviewing invoice."));
 
-    getInvoice(orderId)
+    invoiceRequest
       .then(setInvoice)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load invoice."))
       .finally(() => setIsLoading(false));

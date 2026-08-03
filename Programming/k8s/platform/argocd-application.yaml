@@ -8,7 +8,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/jayyyyte/ISD.20252-18
+    # GitLab CI pushes the verified digest here through masked GITOPS_PUSH_URL.
+    repoURL: https://github.com/tndat-dev/An-Internet-Media-Store.git
     targetRevision: main
     path: Programming/k8s/aims-chart
     helm:

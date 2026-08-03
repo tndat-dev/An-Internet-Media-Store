@@ -32,6 +32,13 @@ kubectl apply --server-side --force-conflicts -f "$root/platform/15-external-sec
 store_ready="$(kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
 [[ "$store_ready" == True ]] || { echo "Vault ClusterSecretStore is not Ready" >&2; exit 1; }
 
+# The Tenant asks the MinIO Operator to register a scrape configuration. Point
+# it at the actual kube-prometheus-stack CR before reconciling the Tenant.
+helm upgrade --install minio-operator minio-operator/operator --version 7.1.1 \
+  --namespace minio-operator --create-namespace --reuse-values \
+  -f "$root/platform/minio-operator-values.yaml" --history-max 10
+kubectl -n minio-operator rollout status deployment/minio-operator --timeout=3m
+
 kubectl apply --server-side --force-conflicts -f "$root/platform/10-data-messaging.yaml"
 
 helm upgrade gatekeeper gatekeeper/gatekeeper --version 3.23.0 \

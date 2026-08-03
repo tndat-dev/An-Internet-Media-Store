@@ -3,7 +3,7 @@
 **Đơn vị học phần:** HUST – ISD.20252-18  
 **Dự án:** AIMS (An Internet Media Store)  
 **Môi trường:** `production` trên cụm kubeadm on-premise  
-**Ngày chốt báo cáo:** 01/08/2026 (UTC+7)  
+**Ngày chốt báo cáo:** 03/08/2026 (UTC+7)
 **Thư mục mã nguồn:** `Programming/k8s/`  
 
 > Báo cáo không chứa mật khẩu, Vault token, private key hoặc giá trị Secret. Mọi
@@ -727,9 +727,9 @@ File `Programming/.gitlab-ci.yml` gồm sáu lớp logic trên bảy stage:
 6. `gitops`: sửa Helm image thành immutable digest và push về nhánh mặc định.
 
 `argocd-application.yaml` bật automated sync, prune, self-heal và server-side
-apply. Trước khi apply phải thay `repoURL` bằng repository GitLab/GitHub thực mà
-cluster truy cập được và push toàn bộ thay đổi trong report này. Không nên bật
-prune với một repo chưa chứa đầy đủ resource production.
+apply, trỏ tới `https://github.com/tndat-dev/An-Internet-Media-Store.git`. Chỉ
+apply sau khi nhánh `main` chứa đầy đủ chart. Pipeline có thể đặt masked
+`GITOPS_PUSH_URL` để đẩy digest đã xác minh về repository GitOps này.
 
 ## 12. Giới hạn và công việc còn lại
 
@@ -737,8 +737,9 @@ Các điểm dưới đây là giới hạn thật, không được mô tả th�
 
 1. Chín service dùng chung image/codebase Django; chưa phải chín bounded context
    độc lập về source repository và database ownership.
-2. GitLab pipeline và Argo CD manifest đã có trong code nhưng cần runner,
-   registry, push token và Git repository bên ngoài để chạy end-to-end.
+2. GitLab pipeline và Argo CD manifest đã có trong code; GitHub là repository
+   GitOps, còn GitLab vẫn cần project/mirror, runner, registry và masked
+   `GITOPS_PUSH_URL` để chạy CI end-to-end.
 3. Keycloak đang chạy nhưng kubectl OIDC chưa được bật trên ba kube-apiserver.
    Cần issuer HTTPS ổn định, CA trust, realm/client/group mapper và RBAC.
 4. PSA namespace đã dùng `restricted:latest` Enforce. Namespace `cks-lab` tách
@@ -900,6 +901,72 @@ chặn privilege escalation/capability. Không test nào tạo pod thật.
 Cleanup cuối đã loại đúng các controller monolith/loadgen/sentinel cũ khỏi
 `production`, giữ nguyên PVC. Hai verifier trả exit 0, HTTPS trả 200, bad pod =
 0, controller thiếu replica = 0 và 18 microservice pod được cân 6/6/6.
+
+### 14.9 Sự cố Kopia/MinIO ngày 03/08/2026
+
+Ba Job `production-default-kopia-maintain-job-*` lỗi liên tiếp không phải lỗi
+Velero scheduler. Log Kopia trả về `Storage backend has reached its minimum free
+drive threshold`; cả bốn PVC của tenant MinIO chỉ có 10 GiB và đã dùng gần hết.
+Biện pháp xử lý không xóa object và không tái tạo tenant:
+
+1. tăng request của bốn PVC Longhorn từ 10 GiB lên 30 GiB để khôi phục ban đầu;
+2. lần lượt reschedule MinIO để filesystem nhận capacity mới và erasure healing
+   hoàn tất; riêng hai volume trên worker4 được gỡ đúng expansion attachment
+   ticket bị stale rồi attach sang worker3, không xóa Longhorn volume;
+3. cấu hình MinIO Operator bằng `minio-operator-values.yaml` để tìm đúng
+   `Prometheus/monitoring-kube-prometheus-prometheus` trong namespace
+   `monitoring`; tenant chuyển từ `Provisioning MinIO Statefulset` về
+   `Initialized`, health `green`;
+4. maintenance tiếp theo hoàn tất `Succeeded`, BackupRepository `Ready` và BSL
+   `Available`; ba PodVolumeBackup `Prepared/InProgress` mồ côi của backup đã
+   terminal được xóa có chọn lọc.
+
+Một full validation sau đó phát hiện nguyên nhân gốc: `defaultVolumesToFsBackup`
+đang chọn cả `data0/data1` của MinIO, nghĩa là Kopia backup bucket đích vào chính
+bucket đó. Dữ liệu tăng đệ quy, bốn drive lại đầy dù vừa resize. Backup này được
+hủy; pool MinIO được gắn `backup.velero.io/backup-volumes-excludes` cho
+`data0,data1,cfg-vol`, và desired capacity tăng lên 4 × 50 GiB để maintenance có
+headroom prune các pack dở dang. Object Kubernetes của Tenant vẫn nằm trong
+backup; object data MinIO phải dùng bucket replication/backup off-cluster.
+
+Desired state cho lần cài mới đặt MinIO 4 × 50 GiB. StatefulSet hiện hữu vẫn giữ
+volumeClaimTemplate ban đầu 10 GiB vì trường này immutable, trong khi capacity
+thực của cả bốn PVC là 50 GiB; đây là hành vi resize PVC đúng của Kubernetes,
+không phải mất đồng bộ dữ liệu. Verifier được bổ sung assertion cho 4/4 PVC,
+Kopia repository, maintenance Job và stale PodVolumeBackup.
+
+### 14.10 Kiểm kê mã nguồn và khả năng chạy CI/CD
+
+Trong working tree đã có đủ các nhóm artifact thuộc phạm vi lab:
+
+- source Django/Next.js và Dockerfile cho backend/frontend;
+- Helm chart chín Argo Rollout, frontend, Service, Gateway API/waypoint;
+- manifest data, messaging, policy, supply chain, observability, backup, RBAC,
+  audit, kube-bench và CKS lab;
+- script bootstrap/reconcile, node hardening, backup/restore drill và verifier;
+- GitLab pipeline `test → build → scan → attest → verify → gitops`, gồm Trivy,
+  kubesec, Syft CycloneDX, SLSA v1 provenance và Cosign keyless attest/verify;
+- Argo CD Application và Argo Rollouts canary.
+
+Một lỗi layout CI đã được sửa: GitLab cần `.gitlab-ci.yml` ở repository root,
+trong khi ứng dụng nằm dưới `Programming/`. Root pipeline nay include pipeline
+chi tiết và mọi path job đều bắt đầu bằng `Programming/`; GitOps commit dùng
+`[skip ci]` để tránh vòng lặp build vô hạn.
+
+Pipeline preflight local đã chạy thật: 207 backend test pass trên PostgreSQL
+17.6 tạm, frontend ESLint/typecheck pass, YAML parse pass, cả hai Docker image
+build thành công và Helm lint/render pass. Cấu hình Django cũng được sửa để biến
+process environment từ GitLab/Vault ưu tiên hơn `.env.local`; callback VietQR
+đầy đủ có token xác thực mới được phép hoàn tất giao dịch, còn connectivity
+probe chỉ được acknowledge và không mutate payment.
+
+Bản bàn giao được version tại GitHub
+`tndat-dev/An-Internet-Media-Store`; Argo CD đọc chart từ nhánh `main`. Pipeline
+vẫn dùng GitLab Registry/OIDC theo yêu cầu kiến trúc, nên cần import/mirror repo
+vào GitLab, tạo runner/registry/project và cấp masked `GITOPS_PUSH_URL` để cập
+nhật digest về GitHub. Identity và registry path trong Kyverno phải khớp project
+thật. Credential, Vault token, private key và `.env` thật cố ý không nằm trong
+code.
 
 ## 15. Kết luận
 

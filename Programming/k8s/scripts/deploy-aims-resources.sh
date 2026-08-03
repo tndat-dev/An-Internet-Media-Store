@@ -6,6 +6,10 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/00-namespace.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/00-foundation.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/05-rbac.yaml"
+helm upgrade --install minio-operator minio-operator/operator --version 7.1.1 \
+  --namespace minio-operator --create-namespace --reuse-values \
+  -f "${ROOT_DIR}/platform/minio-operator-values.yaml" --history-max 10
+kubectl -n minio-operator rollout status deployment/minio-operator --timeout=3m
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/10-data-messaging.yaml"
 kubectl apply -f "${ROOT_DIR}/platform/15-external-secrets.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/20-policy-security.yaml"

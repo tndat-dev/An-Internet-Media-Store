@@ -28,7 +28,7 @@
 
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { OrderProgressStepper } from "@/features/checkout/components/OrderProgressStepper";
@@ -77,46 +77,72 @@ function PayPalPaymentInner() {
     `?order_id=${orderId}&amount_vnd=${amountVnd}&cancelled=true`;
   const paymentMethodHref = `/checkout/payment?orderId=${encodeURIComponent(orderId)}&amount=${encodeURIComponent(amountVnd)}`;
 
+  const completedCapture = useMemo<CapturePayPalPaymentResponse | null>(
+    () =>
+      capturedFlag === "1" && captureTransactionId
+        ? {
+            transaction_id: captureTransactionId,
+            captured_amount: capturedAmount ? Number(capturedAmount) : undefined,
+            captured_currency: capturedCurrency ?? undefined,
+            order_total_vnd: orderTotalVnd ?? undefined,
+            customer_name: customerName ?? undefined,
+            phone_number: phoneNumber ?? undefined,
+            shipping_address: shippingAddress ?? undefined,
+            delivery_province: deliveryProvince ?? undefined,
+          }
+        : null,
+    [
+      capturedAmount,
+      capturedCurrency,
+      capturedFlag,
+      captureTransactionId,
+      customerName,
+      deliveryProvince,
+      orderTotalVnd,
+      phoneNumber,
+      shippingAddress,
+    ],
+  );
+
   // Auto-capture when PayPal redirects back after buyer approval
   useEffect(() => {
-    if (capturedFlag === "1" && captureTransactionId) {
-      setCaptureResult({
-        transaction_id: captureTransactionId,
-        captured_amount: capturedAmount ? Number(capturedAmount) : undefined,
-        captured_currency: capturedCurrency ?? undefined,
-        order_total_vnd: orderTotalVnd ?? undefined,
-        customer_name: customerName ?? undefined,
-        phone_number: phoneNumber ?? undefined,
-        shipping_address: shippingAddress ?? undefined,
-        delivery_province: deliveryProvince ?? undefined,
-      });
-      setPageState("success");
-    } else if (providerOrderId && payerAction) {
-      handleCapture(providerOrderId, orderId);
-    } else if (cancelFlag) {
-      setPageState("cancelled");
+    if (completedCapture || !providerOrderId || !payerAction) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capturedFlag, captureTransactionId, providerOrderId, payerAction, cancelFlag]);
 
-  async function handleCapture(providerOrderId: string, internalOrderId: string) {
-    setPageState("capturing");
-    try {
-      const result = await capturePayPalPayment({
+    let active = true;
+    capturePayPalPayment({
         provider_order_id: providerOrderId,
-        internal_order_id: internalOrderId,
+        internal_order_id: orderId,
+      })
+      .then((result) => {
+        if (!active) return;
+        setCaptureResult(result);
+        setPageState("success");
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setCaptureError(err instanceof Error ? err.message : "Capture failed.");
+        setPageState("failed");
       });
-      setCaptureResult(result);
-      setPageState("success");
-    } catch (err) {
-      setCaptureError(err instanceof Error ? err.message : "Capture failed.");
-      setPageState("failed");
-    }
-  }
+
+    return () => {
+      active = false;
+    };
+  }, [completedCapture, orderId, payerAction, providerOrderId]);
+
+  const effectiveState: PageState = completedCapture
+    ? "success"
+    : cancelFlag
+      ? "cancelled"
+      : providerOrderId && payerAction && pageState === "idle"
+        ? "capturing"
+        : pageState;
+  const effectiveCaptureResult = completedCapture ?? captureResult;
 
   // ---- Render states ----
 
-  if (pageState === "capturing") {
+  if (effectiveState === "capturing") {
     return (
       <main className="manager-shell">
         <section className="workspace-card payment-state-card">
@@ -126,18 +152,8 @@ function PayPalPaymentInner() {
     );
   }
 
-  if (pageState === "idle" && providerOrderId && payerAction) {
-    return (
-      <main className="manager-shell">
-        <section className="workspace-card payment-state-card">
-          <p className="rule-note">Confirming your payment...</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (pageState === "success" && (captureResult || captureTransactionId)) {
-    const result = captureResult ?? {
+  if (effectiveState === "success" && (effectiveCaptureResult || captureTransactionId)) {
+    const result = effectiveCaptureResult ?? {
       transaction_id: captureTransactionId ?? "",
     };
 
@@ -160,7 +176,7 @@ function PayPalPaymentInner() {
     );
   }
 
-  if (pageState === "failed") {
+  if (effectiveState === "failed") {
     return (
       <main className="manager-shell">
         <PaymentResult status="failed" orderId={orderId} retryHref={paymentMethodHref} />
@@ -171,7 +187,7 @@ function PayPalPaymentInner() {
     );
   }
 
-  if (pageState === "cancelled") {
+  if (effectiveState === "cancelled") {
     return (
       <main className="manager-shell">
         <PaymentResult status="cancelled" orderId={orderId} retryHref={paymentMethodHref} />

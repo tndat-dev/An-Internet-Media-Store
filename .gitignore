@@ -1,0 +1,14 @@
+Programming/frontend/.next/
+Programming/frontend/next-env.d.ts
+Programming/frontend/tsconfig.tsbuildinfo
+
+# Local/reference documents
+*.md
+
+# AIMS deployment evidence and runbooks are deliverables, not local notes.
+!AIMS_DEPLOYMENT_REPORT.md
+!AIMS_KUBERNETES_DEPLOYMENT_REPORT.md
+!AIMS_KAFKA_DEPLOYMENT_REPORT.md
+!AIMS_CKS_PRACTICE_REPORT.md
+!Programming/k8s/README.md
+!Programming/k8s/cks-lab/README.md

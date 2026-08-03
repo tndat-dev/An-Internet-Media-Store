@@ -4,7 +4,7 @@
 **Học phần/nhóm:** ISD.20252-18  
 **Môi trường:** cụm kubeadm tại mạng `10.1.16.0/24`  
 **Namespace ứng dụng:** `production`  
-**Ngày chốt báo cáo:** 01/08/2026  
+**Ngày chốt báo cáo:** 03/08/2026
 **Mã nguồn và Infrastructure as Code:** `Programming/k8s/`
 
 > Báo cáo không ghi mật khẩu, token, private key hoặc giá trị Secret. Các bí mật
@@ -53,7 +53,7 @@ khôi phục đúng quorum 3 control-plane; địa chỉ `.238` hiện là worke
 - PostgreSQL CNPG: 3/3 instance, một instance trên mỗi worker.
 - Kafka KRaft: 3/3 broker/controller, một pod trên mỗi worker.
 - RabbitMQ: 3/3, Redis: 3 replica kèm 3 Sentinel.
-- MinIO: 2 server, mỗi server 2 volume Longhorn.
+- MinIO: 2 server, mỗi server 2 volume Longhorn; cả 4 PVC đã mở rộng lên 50 GiB.
 - OpenSearch: 3 node với hard anti-affinity.
 - Cilium, Tetragon và Falco chạy trên toàn bộ 6 node.
 - Velero có BSL `Available`, lịch hằng ngày và các backup thành công trong MinIO.
@@ -645,6 +645,26 @@ kubectl -n longhorn-system get volumes.longhorn.io
 # Velero
 kubectl -n velero get backups.velero.io
 ```
+
+### 9.1 Sửa lỗi Kopia/MinIO ngày 03/08/2026
+
+Kopia maintenance lỗi vì bốn PVC MinIO 10 GiB chạm minimum-free-drive
+threshold. Cả bốn PVC ban đầu được resize lên 30 GiB; hai Longhorn expansion
+ticket stale trên worker4 được gỡ có chọn lọc rồi volume attach sang worker3 để
+filesystem nhận capacity mới. Không volume/object nào bị xóa. Sau erasure heal,
+tenant `health=green`, MinIO Operator `Initialized`, BackupRepository `Ready`,
+maintenance mới `Succeeded` và BSL `Available`. Ba PodVolumeBackup mồ côi thuộc
+backup đã `Failed` được dọn, còn backup metadata lịch sử vẫn được giữ.
+
+Full validation chỉ ra nguyên nhân gốc là backup đệ quy: Velero chọn cả PVC
+MinIO và ghi chúng trở lại bucket trên chính MinIO. Backup được hủy, pool được
+annotate loại `data0,data1,cfg-vol`, và bốn PVC tăng tiếp lên 50 GiB để Kopia có
+headroom prune pack dở dang. Bucket data phải được bảo vệ off-cluster thay vì tự
+backup vào chính nó.
+
+Operator values mới chỉ rõ Prometheus CR trong namespace `monitoring`. Verifier
+kiểm tra thêm 4/4 PVC 50 GiB, maintenance Kopia thành công, không còn Job lỗi và
+không còn PodVolumeBackup `Prepared/InProgress` mồ côi.
 
 ## 10. Rủi ro và việc còn lại
 

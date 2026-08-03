@@ -1,0 +1,5 @@
+# Matches the lab's reachable Argo CD API/UI service.
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30081

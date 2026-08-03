@@ -43,10 +43,10 @@ export function PayPalPaymentButton({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+  const configurationError = clientId ? null : "Missing NEXT_PUBLIC_PAYPAL_CLIENT_ID in frontend/.env";
 
   useEffect(() => {
     if (!clientId) {
-      setError("Missing NEXT_PUBLIC_PAYPAL_CLIENT_ID in frontend/.env");
       return;
     }
 
@@ -203,9 +203,9 @@ export function PayPalPaymentButton({
         )}
       </div>
 
-      {error && (
+      {(error ?? configurationError) && (
         <p className="alert alert-error" role="alert">
-          {error}
+          {error ?? configurationError}
         </p>
       )}
     </div>

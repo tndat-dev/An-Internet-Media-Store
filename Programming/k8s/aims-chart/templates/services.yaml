@@ -55,6 +55,8 @@ spec:
         - setWeight: 100
   template:
     metadata:
+      annotations:
+        backup.velero.io/backup-volumes-excludes: tmp
       labels:
         app.kubernetes.io/name: {{ .name }}
         app.kubernetes.io/part-of: aims

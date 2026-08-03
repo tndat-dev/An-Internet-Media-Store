@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
-load_dotenv(BASE_DIR / ".env.local", override=True)
+# Process environment is authoritative in Kubernetes and CI. Local files are
+# development fallbacks only and must never replace Vault/GitLab variables.
+load_dotenv(BASE_DIR / ".env.local")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "aims-dev-secret-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"

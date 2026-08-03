@@ -22,6 +22,8 @@
 
 "use client";
 
+import Link from "next/link";
+
 interface PaymentResultProps {
   status: "success" | "failed" | "cancelled";
   orderId: string;
@@ -172,13 +174,13 @@ export function PaymentResult({
 
       <div className="form-actions payment-result-actions">
         {retryHref && status !== "success" ? (
-          <a href={retryHref} className="button button-primary">
+          <Link href={retryHref} className="button button-primary">
             Back to Payment
-          </a>
+          </Link>
         ) : null}
-        <a href="/" className={status === "success" ? "button button-primary" : "button button-secondary"}>
+        <Link href="/" className={status === "success" ? "button button-primary" : "button button-secondary"}>
           Back to Home
-        </a>
+        </Link>
       </div>
     </section>
   );

@@ -65,9 +65,29 @@ kafka_pods=$(kubectl -n production get pods -l strimzi.io/name=aims-kafka-kafka 
 check "Kafka brokers on distinct workers" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true) | .spec.nodeName] | unique | length' <<< "$kafka_pods")" 3
 check "RabbitMQ all replicas" "$(kubectl -n production get rabbitmqcluster aims-rabbitmq -o jsonpath='{.status.conditions[?(@.type=="AllReplicasReady")].status}')" True
 check "MinIO health" "$(kubectl -n production get tenant aims-minio -o jsonpath='{.status.healthStatus}')" green
+check "MinIO excluded from recursive Kopia" "$(kubectl -n production get tenant aims-minio -o jsonpath='{.spec.pools[0].annotations.backup\.velero\.io/backup-volumes-excludes}')" data0,data1,cfg-vol
+minio_pvcs=$(kubectl -n production get pvc -l v1.min.io/tenant=aims-minio -o json)
+check "MinIO PVC count" "$(jq '.items | length' <<< "$minio_pvcs")" 4
+check "MinIO PVCs expanded to 50Gi" "$(jq '[.items[] | select(.status.phase == "Bound" and .status.capacity.storage == "50Gi" and .spec.resources.requests.storage == "50Gi")] | length' <<< "$minio_pvcs")" 4
 check "OpenSearch ready replicas" "$(kubectl -n opensearch get sts aims-security-master -o jsonpath='{.status.readyReplicas}')" 3
 check "Vault secret store" "$(kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[0].status}')" True
 check "Velero BSL" "$(kubectl -n velero get backupstoragelocations.velero.io default -o jsonpath='{.status.phase}')" Available
+backup_repo=$(kubectl -n velero get backuprepositories.velero.io production-default-kopia -o json)
+check "Velero Kopia repository ready" "$(jq -r '.status.phase' <<< "$backup_repo")" Ready
+check "Latest Kopia maintenance" "$(jq -r '.status.recentMaintenance | last | .result // "Missing"' <<< "$backup_repo")" Succeeded
+check "Failed Kopia maintenance Jobs" "$(kubectl -n velero get jobs -o json | jq '[.items[] | select((.metadata.name | contains("kopia-maintain")) and ((.status.failed // 0) > 0))] | length')" 0
+volume_backups=$(kubectl -n velero get podvolumebackups.velero.io -o json)
+velero_backups=$(kubectl -n velero get backups.velero.io -o json)
+stale_volume_backups=$(printf '%s\n%s\n' "$volume_backups" "$velero_backups" | jq -s '
+  .[0] as $pvbs | .[1] as $backups |
+  [ $pvbs.items[]
+    | select(.status.phase == "InProgress" or .status.phase == "Prepared") as $pvb
+    | $backups.items[]
+    | select(.metadata.name == $pvb.metadata.labels["velero.io/backup-name"])
+    | select(.status.phase == "Failed" or .status.phase == "PartiallyFailed"
+        or .status.phase == "FailedValidation" or .status.phase == "Completed")
+  ] | length')
+check "Stale Kopia volume backups" "$stale_volume_backups" 0
 check "Gatekeeper audit ready" "$(kubectl -n gatekeeper-system get deploy gatekeeper-audit -o jsonpath='{.status.readyReplicas}')" 1
 check "Gatekeeper template created" "$(kubectl get constrainttemplate k8srequiredruntimehardening -o jsonpath='{.status.created}')" true
 check "Gatekeeper runtime enforcement" "$(kubectl get k8srequiredruntimehardening production-runtime-hardening -o jsonpath='{.spec.enforcementAction}')" deny

@@ -28,16 +28,16 @@ backend-test:
     DATABASE_URL: postgresql://aims:aims-ci@postgres:5432/aims
     DJANGO_SECRET_KEY: ci-only
   before_script:
-    - pip install --no-cache-dir -r backend/requirements.txt
+    - pip install --no-cache-dir -r Programming/backend/requirements.txt
   script:
-    - cd backend
+    - cd Programming/backend
     - pytest -q
 
 frontend-test:
   stage: test
   image: node:22.18-alpine
   before_script:
-    - cd frontend
+    - cd Programming/frontend
     - npm ci
   script:
     - npm run lint
@@ -50,8 +50,8 @@ render-manifests:
     entrypoint: [""]
   script:
     - apk add --no-cache yq
-    - helm lint k8s/aims-chart
-    - helm template aims k8s/aims-chart --namespace production > aims-rendered.yaml
+    - helm lint Programming/k8s/aims-chart
+    - helm template aims Programming/k8s/aims-chart --namespace production > aims-rendered.yaml
     - yq -o=json -I=0 'select(.kind == "Rollout") | {"apiVersion":"v1","kind":"Pod","metadata":{"name":.metadata.name,"namespace":.metadata.namespace},"spec":.spec.template.spec}' aims-rendered.yaml > aims-pods.jsonl
   artifacts:
     paths: [aims-rendered.yaml, aims-pods.jsonl]
@@ -66,8 +66,8 @@ build-images:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - docker build --pull -t "$BACKEND_IMAGE" backend
-    - docker build --pull --build-arg NEXT_PUBLIC_API_BASE_URL=/api -t "$FRONTEND_IMAGE" frontend
+    - docker build --pull -t "$BACKEND_IMAGE" Programming/backend
+    - docker build --pull --build-arg NEXT_PUBLIC_API_BASE_URL=/api -t "$FRONTEND_IMAGE" Programming/frontend
     - docker push "$BACKEND_IMAGE"
     - docker push "$FRONTEND_IMAGE"
     - BACKEND_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$BACKEND_IMAGE")"
@@ -88,7 +88,7 @@ trivy-scan:
   script:
     - trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed "$BACKEND_IMAGE_DIGEST"
     - trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed "$FRONTEND_IMAGE_DIGEST"
-    - trivy config --exit-code 1 --severity HIGH,CRITICAL k8s
+    - trivy config --exit-code 1 --severity HIGH,CRITICAL Programming/k8s
 
 generate-sbom:
   stage: scan
@@ -133,8 +133,8 @@ generate-slsa-provenance:
   before_script:
     - apk add --no-cache jq
   script:
-    - k8s/scripts/generate-slsa-provenance.sh backend "$BACKEND_IMAGE_DIGEST" backend-sbom.cdx.json backend-provenance.json
-    - k8s/scripts/generate-slsa-provenance.sh frontend "$FRONTEND_IMAGE_DIGEST" frontend-sbom.cdx.json frontend-provenance.json
+    - Programming/k8s/scripts/generate-slsa-provenance.sh backend "$BACKEND_IMAGE_DIGEST" backend-sbom.cdx.json backend-provenance.json
+    - Programming/k8s/scripts/generate-slsa-provenance.sh frontend "$FRONTEND_IMAGE_DIGEST" frontend-sbom.cdx.json frontend-provenance.json
   artifacts:
     paths:
       - backend-provenance.json
@@ -191,9 +191,15 @@ update-gitops:
     - BACKEND_DIGEST="${BACKEND_IMAGE_DIGEST#*@}"
     - FRONTEND_REPOSITORY="${FRONTEND_IMAGE_DIGEST%@*}"
     - FRONTEND_DIGEST="${FRONTEND_IMAGE_DIGEST#*@}"
-    - yq -i '.backendImage.repository = strenv(BACKEND_REPOSITORY) | .backendImage.tag = strenv(BACKEND_DIGEST) | .frontend.image.repository = strenv(FRONTEND_REPOSITORY) | .frontend.image.tag = strenv(FRONTEND_DIGEST) | .frontend.nodeSelector = {}' k8s/aims-chart/values.yaml
-    - git add k8s/aims-chart/values.yaml
-    - git commit -m "deploy(production): ${CI_COMMIT_SHA}" || exit 0
-    - git push "https://gitlab-ci-token:${GITOPS_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}"
+    - yq -i '.backendImage.repository = strenv(BACKEND_REPOSITORY) | .backendImage.tag = strenv(BACKEND_DIGEST) | .frontend.image.repository = strenv(FRONTEND_REPOSITORY) | .frontend.image.tag = strenv(FRONTEND_DIGEST) | .frontend.nodeSelector = {}' Programming/k8s/aims-chart/values.yaml
+    - git add Programming/k8s/aims-chart/values.yaml
+    # Avoid a build -> GitOps commit -> build loop; Argo CD still observes it.
+    - git commit -m "deploy(production): ${CI_COMMIT_SHA} [skip ci]" || exit 0
+    # GITOPS_PUSH_URL may point at the GitHub deployment repository and must be
+    # stored as a masked/protected CI variable. Without it, update this GitLab
+    # repository using the existing project push token.
+    - PUSH_URL="${GITOPS_PUSH_URL:-https://gitlab-ci-token:${GITOPS_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git}"
+    - TARGET_BRANCH="${GITOPS_TARGET_BRANCH:-${CI_DEFAULT_BRANCH}}"
+    - git push "$PUSH_URL" "HEAD:${TARGET_BRANCH}"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

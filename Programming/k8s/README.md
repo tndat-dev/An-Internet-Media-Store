@@ -1,7 +1,7 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu 01/08/2026: 3 control-plane + 3 worker,
+`production`. Trạng thái nghiệm thu gần nhất 03/08/2026: 3 control-plane + 3 worker,
 9 Argo Rollout/18 pod microservice và 2 frontend pod, CloudNativePG 3/3, Kafka
 KRaft, RabbitMQ, Redis, MinIO, OpenSearch và backup Velero hoạt động. PSA
 Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
@@ -32,7 +32,9 @@ Báo cáo kiến trúc, lý thuyết, triển khai và sự cố đầy đủ n�
   Secret và có lọc request ồn.
 - `platform/30-observability.yaml`: OpenTelemetry và resource quan sát.
 - `platform/50-backup.yaml`, `60-backup-schedule.yaml`: Velero/MinIO backup.
-- `platform/*-values.yaml`: values cho Vault, Loki, Tempo, OpenSearch và Velero.
+- `platform/*-values.yaml`: values cho Vault, Loki, Tempo, OpenSearch, Velero và
+  MinIO Operator; `minio-operator-values.yaml` nối operator tới Prometheus CR
+  thực trong namespace `monitoring`.
 - `node-profiles/`: Localhost seccomp và AppArmor profile.
 - `cks-lab/`: namespace/NetworkPolicy/RBAC/Quota tách biệt để thực hành CKS.
 - `scripts/`: cài node profile/gVisor, reconcile, backup và nghiệm thu.
@@ -98,6 +100,38 @@ runtime hiện dùng `deny`; Kyverno runtime policy cũng Enforce. Cosign/SLSA v
 Audit riêng cho image `prod-sim` chưa ký. Không bật Argo CD `prune` cho đến khi
 repo Git chứa đầy đủ resource đang quản lý.
 
+## Trạng thái mã CI/CD và GitOps
+
+Bộ mã local đã có Dockerfile backend/frontend, Helm chart AIMS, toàn bộ manifest
+platform/CKS, script vận hành và `.gitlab-ci.yml`. Pipeline định nghĩa đủ luồng
+`test → build → scan → attest → verify → gitops`, gồm Trivy, kubesec, Syft SBOM,
+SLSA provenance, Cosign keyless sign/attest/verify và cập nhật image digest vào
+Helm values. `argocd-application.yaml` trỏ tới repository bàn giao
+`tndat-dev/An-Internet-Media-Store`, có automated sync/prune/self-heal nhưng chỉ
+được apply sau khi commit đã có trên `main`. `scripts/install-cicd-controllers.sh`
+tái tạo đúng Argo CD/Argo Rollouts đang chạy; chỉ bật Application khi
+`ENABLE_AIMS_GITOPS=true` và script xác nhận chart đã tồn tại trên Git remote.
+
+Repository bàn giao là GitHub, còn engine CI được yêu cầu là GitLab CI. Để chạy
+end-to-end, import/mirror repository vào GitLab, cấu hình runner/registry/OIDC và
+đặt masked variable `GITOPS_PUSH_URL` là URL xác thực để job GitOps đẩy digest đã
+verify về GitHub; `GITOPS_TARGET_BRANCH` mặc định là nhánh mặc định. Identity và
+registry trong policy cũng phải khớp project thật. Secret, token, password và
+private key không thuộc source code; chúng phải được nạp vào Vault/GitLab masked
+variables.
+
+Trạng thái live 03/08/2026: Argo CD 3.4.5 và Argo Rollouts 1.9.1 đều khỏe; 9/9
+Rollout AIMS `Healthy`. Cụm chưa có `Application` AIMS và chưa cài GitLab Runner.
+Argo CD UI/API được expose NodePort `30081`, Rollouts Dashboard `30100`. GitLab
+CI có thể dùng shared runner bên ngoài; nếu dùng self-managed runner trong cụm
+thì phải tạo runner authentication token/Secret trước, không lưu token trong
+repository.
+
+Kiểm tra local sau khi sửa layout pipeline: backend `207 passed`, frontend lint
+và typecheck PASS, YAML pipeline parse PASS, Docker build backend/frontend PASS,
+Helm lint/render PASS. `config/settings.py` giữ environment làm nguồn ưu tiên để
+GitLab `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
+
 ## Nghiệm thu
 
 ```bash
@@ -139,8 +173,18 @@ Tạo backup thủ công an toàn:
 
 ```bash
 scripts/velero-smoke-backup.sh
+scripts/velero-final-backup.sh
 kubectl -n velero get backups.velero.io
 ```
+
+Ngày 03/08/2026, Kopia maintenance từng lỗi do drive MinIO chạm
+minimum-free-drive threshold. Nguyên nhân gốc là daily backup dùng
+`defaultVolumesToFsBackup: true` nhưng chưa loại MinIO, tạo vòng lặp backup PVC
+đích vào chính bucket Velero. Pool annotation nay loại `data0,data1,cfg-vol`;
+object Kubernetes của Tenant vẫn được backup, còn bucket phải dùng replication/
+backup off-cluster. Bốn PVC được nâng từ 10 lên 50 GiB để có headroom prune,
+operator được nối đúng Prometheus. `verify-aims.sh` kiểm tra thêm dung lượng 4/4
+PVC, repository/maintenance Kopia và không còn volume backup mồ côi.
 
 Restore drill metadata cô lập, mặc định lấy backup nghiệm thu và chỉ phục hồi
 ConfigMap vào namespace tạm `production-drill`:

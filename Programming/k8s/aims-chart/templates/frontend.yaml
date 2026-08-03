@@ -46,6 +46,8 @@ spec:
       app: aims-frontend
   template:
     metadata:
+      annotations:
+        backup.velero.io/backup-volumes-excludes: tmp,next-cache
       labels:
         app: aims-frontend
         app.kubernetes.io/name: aims-frontend

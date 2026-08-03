@@ -1,0 +1,10 @@
+# MinIO Operator integration with the kube-prometheus-stack instance.
+# Keep these names aligned with the Prometheus CR in namespace monitoring.
+operator:
+  env:
+    - name: OPERATOR_STS_ENABLED
+      value: "on"
+    - name: PROMETHEUS_NAMESPACE
+      value: monitoring
+    - name: PROMETHEUS_NAME
+      value: monitoring-kube-prometheus-prometheus

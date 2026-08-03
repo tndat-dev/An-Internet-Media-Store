@@ -584,6 +584,7 @@ class VietQRTransactionSyncView(APIView):
 
         # Verify Bearer token if present; sandbox integration may omit it.
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        token_verified = False
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             if not self._verify_callback_token(token):
@@ -595,11 +596,11 @@ class VietQRTransactionSyncView(APIView):
                         toast_message="Invalid Bearer token",
                     ),
                 )
+            token_verified = True
             logger.info("VietQR callback: Bearer token verified")
         else:
             logger.info("VietQR callback: No Bearer token provided (test callback or dev)")
 
-        logger.info("Acknowledging VietQR sandbox callback without payment mutation")
         payload = request.data if isinstance(request.data, dict) else {}
         reference = (
             payload.get("transactionId")
@@ -608,6 +609,62 @@ class VietQRTransactionSyncView(APIView):
             or payload.get("referencenumber")
             or ""
         )
+
+        # A provider callback with the complete signed payload settles the
+        # matching VietQR transaction. Short sandbox connectivity probes are
+        # acknowledged but intentionally do not mutate payment/order state.
+        complete_callback_fields = ("orderId", "content", "bankAccount", "amount", "successFlag")
+        if token_verified and all(field in payload for field in complete_callback_fields):
+            try:
+                payment = PaymentTransaction.objects.select_related("order").get(
+                    gateway=PaymentGatewayChoice.VIETQR,
+                    transaction_reference=str(payload["content"]),
+                )
+                callback_amount = Decimal(str(payload["amount"]))
+            except (PaymentTransaction.DoesNotExist, InvalidOperation, TypeError, ValueError):
+                return _logged_vietqr_sync_response(
+                    body=_vietqr_transaction_sync_response(
+                        error=True,
+                        error_reason="Payment transaction does not match callback",
+                        toast_message="Payment transaction does not match callback",
+                        reftransactionid=str(reference),
+                    ),
+                )
+
+            if payload.get("successFlag") is not True or callback_amount != payment.amount:
+                return _logged_vietqr_sync_response(
+                    body=_vietqr_transaction_sync_response(
+                        error=True,
+                        error_reason="Callback status or amount is invalid",
+                        toast_message="Callback status or amount is invalid",
+                        reftransactionid=str(reference),
+                    ),
+                )
+
+            PaymentCompletionService().complete_successful_payment(
+                payment,
+                capture_id=str(reference),
+                provider_payload_patch={"vietqr_callback": payload},
+                note="Completed by verified VietQR callback",
+            )
+            return _logged_vietqr_sync_response(
+                body=_vietqr_transaction_sync_response(
+                    error=False,
+                    toast_message="Transaction processed successfully",
+                    reftransactionid=str(reference),
+                ),
+            )
+
+        if not reference:
+            return _logged_vietqr_sync_response(
+                body=_vietqr_transaction_sync_response(
+                    error=True,
+                    error_reason="Missing transaction reference",
+                    toast_message="Missing transaction reference",
+                ),
+            )
+
+        logger.info("Acknowledging VietQR sandbox callback without payment mutation")
         return _logged_vietqr_sync_response(
             body=_vietqr_transaction_sync_response(
                 error=False,

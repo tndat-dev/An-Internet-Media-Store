@@ -134,6 +134,10 @@ spec:
     name: aims-minio-env
   pools:
     - name: pool-0
+      # Never back the Velero target bucket into itself. MinIO object data must
+      # be protected by bucket replication/off-cluster backup instead.
+      annotations:
+        backup.velero.io/backup-volumes-excludes: data0,data1,cfg-vol
       servers: 2
       volumesPerServer: 2
       affinity:
@@ -152,7 +156,9 @@ spec:
           storageClassName: longhorn
           resources:
             requests:
-              storage: 10Gi
+              # Velero/Kopia shares this tenant with AIMS object data. Keep
+              # enough headroom for MinIO's minimum-free-drive write guard.
+              storage: 50Gi
       resources:
         requests:
           cpu: 200m

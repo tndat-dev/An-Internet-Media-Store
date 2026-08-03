@@ -1,0 +1,4 @@
+# GitLab discovers this file at the repository root. The AIMS pipeline is kept
+# beside the application and deployment sources under Programming/.
+include:
+  - local: /Programming/.gitlab-ci.yml
