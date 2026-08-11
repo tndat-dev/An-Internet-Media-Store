@@ -377,7 +377,9 @@ spec:
   resources:
     requests:
       cpu: 200m
-      memory: 512Mi
+      # RabbitMQ Cluster Operator expects the memory request and limit to be
+      # identical so its memory watermark is deterministic.
+      memory: 1Gi
     limits:
       cpu: "1"
       memory: 1Gi

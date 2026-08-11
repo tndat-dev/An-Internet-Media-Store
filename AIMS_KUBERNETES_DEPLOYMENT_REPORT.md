@@ -668,6 +668,29 @@ Operator values mới chỉ rõ Prometheus CR trong namespace `monitoring`. Veri
 kiểm tra thêm 4/4 PVC 50 GiB, maintenance Kopia thành công, không còn Job lỗi và
 không còn PodVolumeBackup `Prepared/InProgress` mồ côi.
 
+### 9.2 Runbook reboot không sạch ngày 11/08/2026
+
+Một Pod có phase `Running` không đồng nghĩa hệ thống khỏe. Sau reboot phải kiểm
+tra thêm `containerStatuses[].ready`, replica controller, CR condition, PVC và
+Longhorn robustness. Trình tự đã áp dụng trong cụm:
+
+```bash
+kubectl get nodes
+kubectl get pods -A -o json | jq -r \
+  '.items[] | select(.status.phase != "Succeeded") |
+   select(.status.phase != "Running" or
+          (([.status.containerStatuses[]?.ready] | all) | not)) |
+   [.metadata.namespace,.metadata.name,.status.phase] | @tsv'
+kubectl get deploy,sts,ds -A
+kubectl -n longhorn-system get volumes.longhorn.io
+kubectl -n velero get backuprepositories.velero.io,backups.velero.io
+```
+
+Chỉ chạy `e2fsck` khi device không mount và kubelet trên node tương ứng đã dừng.
+Snapshot/dump phải có trước; stateful replica được dựng lại từng chiếc từ quorum
+khỏe. Với operator native TLS/probe không đi qua sidecar, dùng ngoại lệ
+`PeerAuthentication` theo đúng port, không hạ mTLS của cả namespace.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |

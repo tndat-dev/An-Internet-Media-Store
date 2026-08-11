@@ -975,6 +975,55 @@ CRD diff không tạo self-heal giả; values của Argo CD/Rollouts ghi lại n
 `system`, và installer dùng Helm SSA `--force-conflicts` để tiếp quản có chủ đích
 field từng được patch thủ công.
 
+### 14.11 Phục hồi unclean reboot ngày 11/08/2026
+
+Sáu node cùng reboot không sạch khoảng 04:30 làm nhiều pod vẫn có phase
+`Running` nhưng không Ready, đồng thời một số ext4 trên Longhorn cần kiểm tra
+offline. Quy trình xử lý giữ nguyên nguyên tắc không sửa filesystem đang mount:
+
+1. chụp Longhorn snapshot cho Redis, RabbitMQ, OpenSearch và Vault audit trước
+   mọi thao tác; dump toàn bộ PostgreSQL từ primary còn khỏe;
+2. dừng kubelet ngắn trên node chứa volume cần sửa, chạy `e2fsck -fy` offline,
+   kiểm tra lại rồi mới cho workload mount;
+3. unseal đủ ba Vault replica từ Secret bootstrap qua stdin, không đưa key vào
+   command line hoặc log;
+4. dựng lại hai replica CNPG từ primary. Port quản trị 8000 dùng HTTPS/mTLS
+   native của CNPG nên đặt `PERMISSIVE` theo port; Ambient không hỗ trợ
+   `DISABLE`, còn PostgreSQL/application port tiếp tục chịu STRICT;
+5. OpenSearch phục hồi quorum 3/3 sau khi cô lập data directory hỏng của một
+   replica. RabbitMQ Khepri mất quorum nên task queue được dựng sạch từ operator
+   sau khi snapshot cả ba PVC; Queue/Exchange/DLQ được topology operator tạo lại;
+6. tái tạo network namespace cũ của một payment pod và Argo application
+   controller, khôi phục ztunnel 6/6 và Argo CD `Synced/Healthy`;
+7. startup probe RabbitMQ port 15672 dùng plaintext từ kubelet nên có ngoại lệ
+   `PERMISSIVE` theo port; AMQP/Erlang distribution và các port khác vẫn STRICT;
+8. đặt memory request = limit = 1 GiB cho RabbitMQ theo cảnh báo của operator,
+   rolling update hoàn tất 3/3 mà không mất availability;
+9. daily Velero đúng lúc MinIO chưa Ready fail với S3 503. Maintenance kế tiếp
+   `Succeeded`, repository `Ready`, BSL `Available`; smoke backup mới hoàn tất.
+   Full backup `production-post-reboot-recovery-20260811` cũng `Completed` với
+   1.730/1.730 object, 43/43 volume backup, 0 error; năm warning đều là volume
+   pod được khai báo nhưng không mount nên Velero bỏ qua đúng kỳ vọng.
+
+Trivy Operator ban đầu vẫn tạo Job lỗi cho image node-local vì registry mirror
+normalize `aims-backend:prod-sim` thành
+`mirror.gcr.io/library/aims-backend:prod-sim` sau khi kiểm tra cấu hình cũ. Danh
+sách exclude nay chứa cả hai dạng backend/frontend. Đây chỉ là ngoại lệ lab cho
+vulnerability scan image không thể pull; CI vẫn scan/SBOM lúc build, còn
+config/RBAC/secret/compliance scan trong cụm và image platform vẫn hoạt động.
+
+Điều kiện `Programmed/Accepted` của Gateway chưa đủ phát hiện stale network
+namespace: hai frontend pod cũ làm request `/` xen kẽ 200/503 dù EndpointSlice
+đều Ready. Tái tạo tuần tự hai pod giữ một replica phục vụ liên tục, sau đó 24/24
+HTTP và 24/24 HTTPS request trả 200. Verifier nay sample lặp cả hai listener để
+phát hiện lỗi endpoint kiểu này trong lần reboot sau.
+
+Sau phục hồi, kiểm kê dùng cả Pod readiness, desired/ready của controller, Job
+failure, operator condition và storage robustness thay vì chỉ lọc Pod phase.
+Các snapshot sự cố và SQL dump được giữ làm điểm rollback; dữ liệu RabbitMQ cũ
+không được tự động restore vì queue là dữ liệu ngắn hạn và snapshot có thể không
+application-consistent.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,

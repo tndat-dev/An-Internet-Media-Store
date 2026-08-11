@@ -375,6 +375,27 @@ Snapshot block trong lúc broker đang ghi có thể crash-consistent nhưng kh�
 application-consistent. Khi restore một broker, KRaft/replica log phải reconcile;
 không restore ba broker từ ba thời điểm khác nhau mà không có runbook.
 
+### 9.1 Kiểm chứng sau reboot toàn cụm ngày 11/08/2026
+
+Sau reboot đồng thời sáu node, Strimzi tự reconcile và Kafka KRaft trở lại
+`Ready=True`, NodePool `dual-role` có đủ ba broker/controller ID 0, 1, 2. Không
+format hoặc restore PVC Kafka vì quorum/log vẫn nhất quán. Các PodVolumeBackup
+cũ của broker trên node chưa sẵn sàng có thể fail ở bước expose; phải phân biệt
+lỗi transport của node với lỗi Kafka và chạy backup validation mới sau khi mọi
+node Ready.
+
+Runbook ưu tiên quan sát trước can thiệp:
+
+```bash
+kubectl -n production get kafka,kafkanodepool,pod -l strimzi.io/cluster=aims-kafka
+kubectl -n production describe kafka aims-kafka
+kubectl -n production logs deploy/strimzi-cluster-operator --since=30m
+```
+
+Chỉ rebuild broker khi Strimzi condition hoặc log xác nhận replica không thể
+tham gia lại. Không đồng thời xóa dữ liệu nhiều broker KRaft; giữ ít nhất quorum
+metadata và bản sao ISR khỏe trong suốt thao tác.
+
 ## 10. Capacity planning
 
 Ước lượng dung lượng tối thiểu:

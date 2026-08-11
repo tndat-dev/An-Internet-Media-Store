@@ -107,6 +107,25 @@ gateway_ready=$(kubectl -n istio-ingress get deploy aims-ingress-istio -o jsonpa
 gateway_ha=false
 (( ${gateway_ready:-0} >= 2 )) && gateway_ha=true
 check "Istio ingress replicas >= 2" "$gateway_ha" true
+
+# Conditions can remain healthy while a pre-reboot pod network namespace is
+# stale. Sample both listeners repeatedly so a broken endpoint is observable.
+ingress_node_ip=${AIMS_INGRESS_NODE_IP:-$(jq -r '.items[0].status.addresses[] | select(.type == "InternalIP") | .address' <<< "$nodes")}
+ingress_service=$(kubectl -n istio-ingress get service aims-ingress-istio -o json)
+http_node_port=$(jq -r '.spec.ports[] | select(.name == "http") | .nodePort' <<< "$ingress_service")
+https_node_port=$(jq -r '.spec.ports[] | select(.name == "https") | .nodePort' <<< "$ingress_service")
+gateway_samples=${AIMS_GATEWAY_SAMPLES:-6}
+http_ok=0
+https_ok=0
+for _ in $(seq 1 "$gateway_samples"); do
+  [[ "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: aims.lab' \
+    "http://${ingress_node_ip}:${http_node_port}/")" == "200" ]] && http_ok=$((http_ok + 1))
+  [[ "$(curl -ksS -o /dev/null -w '%{http_code}' \
+    --resolve "aims.lab:${https_node_port}:${ingress_node_ip}" \
+    "https://aims.lab:${https_node_port}/")" == "200" ]] && https_ok=$((https_ok + 1))
+done
+check "Gateway HTTP samples" "$http_ok" "$gateway_samples"
+check "Gateway HTTPS samples" "$https_ok" "$gateway_samples"
 check "RBAC readonly role exists" "$(kubectl -n production get role aims-readonly -o jsonpath='{.metadata.name}')" aims-readonly
 check "Kyverno Cosign/SLSA policy ready" "$(kubectl get clusterpolicy aims-verify-signed-slsa-images -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" True
 check "Kyverno AIMS runtime policy Enforce" "$(kubectl get clusterpolicy production-runtime-hardening -o jsonpath='{.spec.validationFailureAction}')" Enforce

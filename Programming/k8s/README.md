@@ -1,10 +1,16 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu gần nhất 03/08/2026: 3 control-plane + 3 worker,
+`production`. Trạng thái nghiệm thu gần nhất 11/08/2026: 3 control-plane + 3 worker,
 9 Argo Rollout/18 pod microservice và 2 frontend pod, CloudNativePG 3/3, Kafka
 KRaft, RabbitMQ, Redis, MinIO, OpenSearch và backup Velero hoạt động. PSA
 Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
+
+Lần nghiệm thu 11/08 bao gồm phục hồi sau unclean reboot đồng thời sáu node:
+filesystem stateful được snapshot trước khi sửa, CNPG/RabbitMQ/OpenSearch/Vault
+đã về đủ replica, Argo CD `Synced/Healthy`, ztunnel đủ 6/6 và Velero smoke
+backup hoàn tất. Hai `PeerAuthentication` theo port cho phép probe/native TLS
+của operator đi qua Ambient nhưng giữ STRICT cho mọi port ứng dụng còn lại.
 
 Báo cáo kiến trúc, lý thuyết, triển khai và sự cố đầy đủ nằm tại
 [`../../AIMS_DEPLOYMENT_REPORT.md`](../../AIMS_DEPLOYMENT_REPORT.md).
@@ -54,6 +60,12 @@ worker. Frontend lab nằm trên worker3/worker4; chạy
 `scripts/label-lab-frontend-nodes.sh k8s-worker3.local k8s-worker4.local` trước
 reconcile. Khi CI publish registry digest, job GitOps cập nhật cả backend lẫn
 frontend và xóa nodeSelector lab.
+
+Trivy Operator bỏ qua vulnerability scan riêng cho hai tag node-local này vì
+scan Job không mount containerd socket và registry mirror không chứa image lab;
+CI vẫn scan/SBOM image khi build. `excludeImages` chứa cả tên gốc lẫn tên đã
+normalize qua `mirror.gcr.io`. Mọi image platform có registry vẫn được Trivy
+Operator scan bình thường; bỏ exclusion sau khi GitLab Registry được dùng.
 
 ## Cài profile trên từng worker
 
@@ -185,6 +197,15 @@ object Kubernetes của Tenant vẫn được backup, còn bucket phải dùng r
 backup off-cluster. Bốn PVC được nâng từ 10 lên 50 GiB để có headroom prune,
 operator được nối đúng Prometheus. `verify-aims.sh` kiểm tra thêm dung lượng 4/4
 PVC, repository/maintenance Kopia và không còn volume backup mồ côi.
+
+Ngày 11/08/2026, daily backup khởi chạy đúng lúc MinIO chưa sẵn sàng sau reboot
+nên fail nhanh với S3 `503`; đây không phải lỗi repository. Kopia maintenance
+kế tiếp đã `Succeeded`, BackupRepository trở lại `Ready`, BSL `Available` và
+backup metadata `production-smoke-20260811053150` đã `Completed`. Job failed cũ
+được dọn sau khi lưu nguyên nhân trong báo cáo; lịch daily vẫn giữ nguyên. Full
+validation `production-post-reboot-recovery-20260811` sau đó `Completed` trong
+khoảng 6 phút: 1.730/1.730 object, 43/43 PodVolumeBackup, 0 error. Năm warning
+chỉ là volume khai báo nhưng không mount của Redis/waypoint.
 
 Restore drill metadata cô lập, mặc định lấy backup nghiệm thu và chỉ phục hồi
 ConfigMap vào namespace tạm `production-drill`:

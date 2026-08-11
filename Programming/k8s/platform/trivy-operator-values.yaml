@@ -72,7 +72,9 @@ trivyOperator:
   # These two simulation images exist only in node-local containerd. The CI
   # pipeline scans/SBOMs their registry builds; the in-cluster scanner cannot
   # pull node-local tags until the GitLab Registry deployment replaces them.
-  excludeImages: "aims-backend:prod-sim,aims-frontend:prod-sim"
+  # Trivy applies the Docker Hub mirror before its exclusion check, so keep
+  # both the workload references and their normalized mirror references.
+  excludeImages: "aims-backend:prod-sim,aims-frontend:prod-sim,mirror.gcr.io/library/aims-backend:prod-sim,mirror.gcr.io/library/aims-frontend:prod-sim"
   scanJobPodTemplateContainerSecurityContext:
     allowPrivilegeEscalation: false
     capabilities:

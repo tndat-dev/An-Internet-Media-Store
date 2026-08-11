@@ -30,6 +30,37 @@ spec:
   mtls:
     mode: STRICT
 ---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: cnpg-management-native-tls
+  namespace: production
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: aims-postgres-cnpg
+  # CloudNativePG already protects port 8000 with its own mutual TLS. Ambient
+  # does not support DISABLE; PERMISSIVE lets its native HTTPS pass while all
+  # PostgreSQL application ports remain STRICT.
+  portLevelMtls:
+    "8000":
+      mode: PERMISSIVE
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: rabbitmq-startup-probe
+  namespace: production
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aims-rabbitmq
+  # The operator-generated startup probe is plaintext HTTP from kubelet. AMQP,
+  # Erlang distribution and every other workload port remain STRICT.
+  portLevelMtls:
+    "15672":
+      mode: PERMISSIVE
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
