@@ -138,6 +138,93 @@ làm một. Traffic pod-to-Service được ztunnel mã hóa HBONE/mTLS, chuyể
 waypoint khi cần xử lý L7. `PeerAuthentication/default` giữ STRICT; chỉ port
 probe/native TLS đặc thù của operator có ngoại lệ theo port.
 
+### 4.3 Giao diện quản trị giao tiếp giữa các component
+
+Giao diện phù hợp nhất để quan sát service-to-service traffic là **Hubble UI**,
+không phải trang web AIMS. Hubble Relay và Hubble UI đang Running; UI trả HTTP
+200 từ trong mạng cụm. Service giữ `ClusterIP` để không công khai runtime flow
+ra LAN, vì vậy truy cập qua SSH tunnel từ workstation:
+
+```bash
+ssh -L 12000:127.0.0.1:12000 dat@10.1.16.234 \
+  'kubectl -n kube-system port-forward --address 127.0.0.1 \
+  svc/hubble-ui 12000:80'
+```
+
+Giữ terminal này mở và truy cập `http://localhost:12000`. Trong Hubble UI, chọn
+namespace `production`, sau đó lọc source/destination, verdict
+`FORWARDED/DROPPED`, TCP/DNS/HTTP và port. Traffic Ambient có thể xuất hiện dưới
+dạng HBONE tới waypoint/ztunnel; cần kết hợp identity, Service và port để phân
+biệt flow ứng dụng với flow mesh.
+
+Các giao diện quản trị liên quan đã triển khai:
+
+| Giao diện | Trạng thái/exposure | Địa chỉ hoặc tunnel | Phạm vi quan sát |
+|---|---|---|---|
+| Hubble UI | Running, `ClusterIP` | `http://localhost:12000` qua tunnel trên | Cilium L3/L4/L7 flow, drop verdict, service map |
+| RabbitMQ Management | Running, `ClusterIP` | tunnel local `15672` → `svc/aims-rabbitmq:15672` | connection, channel, exchange, queue, consumer, ack/DLQ |
+| Grafana | Running, NodePort | `http://10.1.16.234:32300` | dashboard Prometheus; Explore Loki/Tempo |
+| Prometheus | Running, NodePort | `http://10.1.16.234:32090` | target, metric và PromQL |
+| Argo CD | Running, NodePort | HTTP `30081`, HTTPS `30443` | Git desired/live và resource tree; không phải network flow |
+| Argo Rollouts | Running, NodePort | `http://10.1.16.234:30100` | canary revision và rollout state |
+| Keycloak | Running, NodePort | `http://10.1.16.234:30080/auth/` | realm, client, user và OIDC session |
+| Vault UI | Running, NodePort | `http://10.1.16.234:30200` | auth method, policy và secret metadata |
+| MinIO Console | Running, `ClusterIP` | tunnel local `19090` → `svc/aims-minio-console:9090` | bucket/object/drive health |
+
+Argo CD dùng username mặc định `admin`; password chỉ lấy từ Secret lúc đăng
+nhập. HTTPS dùng certificate lab nên trình duyệt có thể cảnh báo:
+
+```bash
+ssh dat@10.1.16.234 \
+  "kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d; echo"
+```
+
+Mở `Application/aims-production` để xem resource tree, revision Git, trạng thái
+`Synced/Healthy`, diff và lịch sử reconcile. Argo CD phản ánh quan hệ GitOps,
+không thay thế Hubble khi cần xem packet/service flow runtime.
+
+RabbitMQ tunnel:
+
+```bash
+ssh -L 15672:127.0.0.1:15672 dat@10.1.16.234 \
+  'kubectl -n production port-forward --address 127.0.0.1 \
+  svc/aims-rabbitmq 15672:15672'
+```
+
+Credential RabbitMQ được đọc tại thời điểm sử dụng, không ghi vào báo cáo/Git:
+
+```bash
+ssh dat@10.1.16.234 '
+printf "username: "; kubectl -n production get secret \
+  aims-rabbitmq-default-user -o jsonpath="{.data.username}" | base64 -d
+printf "\npassword: "; kubectl -n production get secret \
+  aims-rabbitmq-default-user -o jsonpath="{.data.password}" | base64 -d
+printf "\n"'
+```
+
+MinIO Console tunnel:
+
+```bash
+ssh -L 19090:127.0.0.1:19090 dat@10.1.16.234 \
+  'kubectl -n production port-forward --address 127.0.0.1 \
+  svc/aims-minio-console 19090:9090'
+```
+
+Grafana credential nằm trong Secret `monitoring/monitoring-grafana`; Vault
+bootstrap credential nằm trong `vault/vault-bootstrap`; MinIO credential được
+ESO reconcile vào `production/aims-minio-env`. Chỉ giải mã tại terminal quản
+trị, không copy password/token vào tài liệu hoặc shell history.
+
+Các UI **chưa được cài** gồm Kiali, Kafka UI/AKHQ, OpenSearch Dashboards,
+RedisInsight và pgAdmin. Do đó:
+
+- Hubble là UI live network flow hiện có;
+- RabbitMQ Management là UI task/message queue hiện có;
+- Kafka hiện quản trị bằng Strimzi CR và CLI, chưa có topic/consumer web UI;
+- Istio Ambient chưa có Kiali graph riêng; Hubble và Grafana/Tempo là nguồn
+  quan sát hiện tại.
+
 ## 5. Luồng nghiệp vụ
 
 ### 5.1 Luồng mua hàng đồng bộ đang chạy

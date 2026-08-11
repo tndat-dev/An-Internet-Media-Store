@@ -1049,6 +1049,38 @@ rõ ranh giới hiện tại: chín Rollout là chín deployment unit dùng chun
 image; endpoint Kafka/RabbitMQ đã được inject nhưng publisher/consumer nghiệp vụ
 chưa được hiện thực trong source, nên không tuyên bố event-driven end-to-end.
 
+### 14.13 Truy cập dashboard quản trị giao tiếp
+
+Dashboard chính để quan sát giao tiếp giữa các component AIMS là Hubble UI.
+Service `kube-system/hubble-ui` giữ `ClusterIP`; từ workstation tạo SSH tunnel
+và mở `http://localhost:12000`:
+
+```bash
+ssh -L 12000:127.0.0.1:12000 dat@10.1.16.234 \
+  'kubectl -n kube-system port-forward --address 127.0.0.1 \
+  svc/hubble-ui 12000:80'
+```
+
+Sau đó chọn namespace `production` để xem source/destination, port, verdict
+FORWARDED/DROPPED và service flow. RabbitMQ Management được tunnel tương tự từ
+`production/aims-rabbitmq:15672` tới `http://localhost:15672`; credential lấy
+từ Secret `aims-rabbitmq-default-user`. Grafana và Prometheus đã expose NodePort
+lần lượt tại `32300` và `32090`; Argo CD tại `30081/30443`, Rollouts Dashboard
+tại `30100`, Keycloak tại `30080/auth/` và Vault UI tại `30200`. MinIO Console
+giữ ClusterIP và dùng tunnel local `19090` tới
+`production/aims-minio-console:9090`.
+
+Argo CD dùng user `admin`; password lấy động từ Secret
+`argocd/argocd-initial-admin-secret`. Trong UI, application `aims-production`
+hiển thị resource tree, revision, diff và trạng thái `Synced/Healthy`; đây là
+GitOps view, còn runtime network flow xem trong Hubble UI.
+
+Kiali, Kafka UI/AKHQ, OpenSearch Dashboards, RedisInsight và pgAdmin chưa được
+cài. Vì vậy Hubble là UI network flow hiện tại, RabbitMQ Management là UI task
+queue, còn Kafka quản trị bằng Strimzi CR/CLI. Danh sách URL, lệnh tunnel và quy
+tắc không lưu credential trong Git được trình bày đầy đủ tại mục 4.3 của
+[`AIMS_OPERATION_FLOW_REPORT.md`](AIMS_OPERATION_FLOW_REPORT.md).
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,

@@ -112,6 +112,24 @@ lần sửa và chỉ chuyển sang control-plane tiếp theo sau khi `/readyz` 
 Audit JSON nằm tại `/var/log/kubernetes/audit/audit.log`, rotate 100 MiB × 10,
 giữ tối đa 30 ngày.
 
+## Dashboard quản trị giao tiếp
+
+Hubble UI là giao diện chính để xem flow giữa các component AIMS. Từ workstation:
+
+```bash
+ssh -L 12000:127.0.0.1:12000 dat@10.1.16.234 \
+  'kubectl -n kube-system port-forward --address 127.0.0.1 \
+  svc/hubble-ui 12000:80'
+```
+
+Mở `http://localhost:12000` và chọn namespace `production`. RabbitMQ Management
+dùng tunnel tương tự tới `production/aims-rabbitmq:15672`. Grafana, Prometheus,
+Argo CD, Rollouts, Keycloak và Vault đã có NodePort lần lượt `32300`, `32090`,
+`30081/30443`, `30100`, `30080` và `30200`. Argo CD đăng nhập bằng user `admin`;
+password lấy từ Secret `argocd/argocd-initial-admin-secret`, không ghi vào Git.
+Chi tiết URL, credential Secret, MinIO tunnel và danh sách UI chưa cài nằm tại
+[`../../AIMS_OPERATION_FLOW_REPORT.md`](../../AIMS_OPERATION_FLOW_REPORT.md#43-giao-diện-quản-trị-giao-tiếp-giữa-các-component).
+
 Apply Gatekeeper theo thứ tự ConstraintTemplate trước Constraint. Constraint
 runtime hiện dùng `deny`; Kyverno runtime policy cũng Enforce. Cosign/SLSA vẫn
 Audit riêng cho image `prod-sim` chưa ký. Không bật Argo CD `prune` cho đến khi
