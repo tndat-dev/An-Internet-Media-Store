@@ -1024,6 +1024,31 @@ Các snapshot sự cố và SQL dump được giữ làm điểm rollback; dữ 
 không được tự động restore vì queue là dữ liệu ngắn hạn và snapshot có thể không
 application-consistent.
 
+### 14.12 Đồng bộ source, live state và tài liệu luồng hoạt động
+
+Ngày 11/08/2026, source chuẩn được chốt tại repository
+`tndat-dev/An-Internet-Media-Store`. Toàn bộ Helm chart, manifest platform/CKS
+và script được đối chiếu checksum với snapshot triển khai
+`/home/dat/aims-deploy-20260729` trên master. Argo CD báo `Synced/Healthy` đúng
+full Git revision; audit live không còn pod non-ready/Unknown, Job đang failed
+hoặc PVC unbound. Sáu node Ready, 28/28 Longhorn volume healthy và các operator
+stateful vẫn đạt replica/condition mong đợi.
+
+`scripts/audit-live-sync.sh` được bổ sung làm cổng kiểm tra read-only: node
+Ready/DiskPressure, readiness của mọi container, Job/PVC, Argo revision, chín
+Rollout, CNPG/Kafka/RabbitMQ/MinIO/OpenSearch/Vault/Longhorn và gọi tiếp cả hai
+verifier. Script phân biệt `kubectl diff` exit 1 với lỗi API; CR operator có thể
+khác last-applied metadata/default hoặc Job bootstrap đã TTL cleanup mà không
+phải drift desired state.
+
+Báo cáo [`AIMS_OPERATION_FLOW_REPORT.md`](AIMS_OPERATION_FLOW_REPORT.md) mô tả
+riêng các luồng GitOps/reconcile, ingress Gateway API, Ambient east-west, OIDC và
+secret, checkout/payment, Kafka event log, RabbitMQ task queue, security
+telemetry, OpenTelemetry, SLSA/Cosign/Kyverno và Velero/MinIO. Báo cáo cũng ghi
+rõ ranh giới hiện tại: chín Rollout là chín deployment unit dùng chung Django
+image; endpoint Kafka/RabbitMQ đã được inject nhưng publisher/consumer nghiệp vụ
+chưa được hiện thực trong source, nên không tuyên bố event-driven end-to-end.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,

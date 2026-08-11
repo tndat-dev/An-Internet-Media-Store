@@ -183,9 +183,14 @@ Vault/ESO, operator dữ liệu, supply-chain policy và runtime detection.
 
 ```bash
 cd Programming/k8s
+scripts/audit-live-sync.sh
 scripts/verify-aims.sh
 scripts/verify-cks-lab.sh
 ```
+
+Chi tiết luồng request, nghiệp vụ, messaging, security telemetry, CI/CD và
+đồng bộ Git/live nằm tại
+[`../AIMS_OPERATION_FLOW_REPORT.md`](../AIMS_OPERATION_FLOW_REPORT.md).
 
 Các image `prod-sim` là artifact node-local dành cho lab. Pipeline GitLab đã có
 luồng build → Trivy/kubesec → Syft SBOM → SLSA/Cosign attest → verify → cập nhật

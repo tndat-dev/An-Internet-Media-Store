@@ -268,7 +268,9 @@ scripts/velero-config-restore-drill.sh
 See the [Kubernetes runbook](Programming/k8s/README.md) and
 [deployment report](AIMS_DEPLOYMENT_REPORT.md) for architecture, pinned chart
 versions, operational caveats, audit logging, supply-chain policy, and recovery
-details.
+details. The [operation-flow report](AIMS_OPERATION_FLOW_REPORT.md) maps the
+live request, business, messaging, identity, telemetry, CI/CD, and backup flows
+and documents the Git-to-cluster synchronization checks.
 
 ## Documentation
 
@@ -278,6 +280,7 @@ details.
 - [API endpoints](Programming/docs/api/api-endpoints.md)
 - [Environment variables](Programming/docs/setup/environment-variables.md)
 - [Kubernetes and Helm lab](Programming/k8s/README.md)
+- [AIMS operation and synchronization flows](AIMS_OPERATION_FLOW_REPORT.md)
 - [Software requirements specification](RequirementAnalysis/SRS/Group18SoftwareRequirementSpecification-Ver1.2.pdf)
 - [Software design document](Group18-SDD.docx)
 

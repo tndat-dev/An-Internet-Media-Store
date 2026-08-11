@@ -13,7 +13,10 @@ backup hoàn tất. Hai `PeerAuthentication` theo port cho phép probe/native TL
 của operator đi qua Ambient nhưng giữ STRICT cho mọi port ứng dụng còn lại.
 
 Báo cáo kiến trúc, lý thuyết, triển khai và sự cố đầy đủ nằm tại
-[`../../AIMS_DEPLOYMENT_REPORT.md`](../../AIMS_DEPLOYMENT_REPORT.md).
+[`../../AIMS_DEPLOYMENT_REPORT.md`](../../AIMS_DEPLOYMENT_REPORT.md). Sơ đồ và
+diễn giải request, nghiệp vụ, data/messaging, security telemetry, supply chain,
+backup cùng quy trình chứng minh Git/live đồng bộ nằm tại
+[`../../AIMS_OPERATION_FLOW_REPORT.md`](../../AIMS_OPERATION_FLOW_REPORT.md).
 
 ## Cấu trúc
 
@@ -43,7 +46,9 @@ Báo cáo kiến trúc, lý thuyết, triển khai và sự cố đầy đủ n�
   thực trong namespace `monitoring`.
 - `node-profiles/`: Localhost seccomp và AppArmor profile.
 - `cks-lab/`: namespace/NetworkPolicy/RBAC/Quota tách biệt để thực hành CKS.
-- `scripts/`: cài node profile/gVisor, reconcile, backup và nghiệm thu.
+- `scripts/`: cài node profile/gVisor, reconcile, backup, audit đồng bộ và
+  nghiệm thu. `audit-live-sync.sh` là audit read-only tổng hợp trạng thái GitOps,
+  pod/Job/PVC, operator, Longhorn và hai verifier.
 
 Manifest monolith `aims-production.yaml` đã được loại khỏi desired state để
 không thể apply nhầm PostgreSQL/backend/VirtualService cũ vào production.
@@ -147,8 +152,17 @@ GitLab `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
 ## Nghiệm thu
 
 ```bash
+scripts/audit-live-sync.sh
 scripts/verify-aims.sh
 scripts/verify-cks-lab.sh
+```
+
+Có thể ràng buộc revision Argo CD mong đợi và xem server-side diff mà không
+apply:
+
+```bash
+EXPECTED_REVISION=<full-git-sha> scripts/audit-live-sync.sh
+SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
 
 Script trả non-zero nếu sai bất kỳ tiêu chí nào: topology 3 CP + 3 worker,
