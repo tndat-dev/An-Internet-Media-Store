@@ -1,10 +1,16 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu gần nhất 11/08/2026: 3 control-plane + 3 worker,
+`production`. Trạng thái nghiệm thu gần nhất 09/09/2026: 3 control-plane + 3 worker,
 9 Argo Rollout/18 pod microservice và 2 frontend pod, CloudNativePG 3/3, Kafka
 KRaft, RabbitMQ, Redis, MinIO, OpenSearch và backup Velero hoạt động. PSA
-Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
+Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0. Backend được
+phân bố 6/6/6 trên ba worker, hai frontend pod nằm trên hai worker khác nhau.
+
+Repository chuẩn trên workstation là `/home/tndat/An-Internet-Media-Store`.
+Control-plane chính giữ clone đầy đủ tại `/home/dat/An-Internet-Media-Store` và
+snapshot vận hành K8s tại `/home/dat/aims-deploy-20260729`; workspace HUST không
+phải nguồn deploy.
 
 Lần nghiệm thu 11/08 bao gồm phục hồi sau unclean reboot đồng thời sáu node:
 filesystem stateful được snapshot trước khi sửa, CNPG/RabbitMQ/OpenSearch/Vault
@@ -179,7 +185,9 @@ Có thể ràng buộc revision Argo CD mong đợi và xem server-side diff mà
 apply:
 
 ```bash
-EXPECTED_REVISION=<full-git-sha> scripts/audit-live-sync.sh
+EXPECTED_REVISION=<full-git-sha> \
+EXPECTED_SOURCE_REVISION=<source-build-full-git-sha> \
+  scripts/audit-live-sync.sh
 SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
 
@@ -189,6 +197,11 @@ CNPG/Kafka/RabbitMQ/MinIO/OpenSearch, Vault/Velero, gVisor/Localhost profiles,
 frontend Helm/read-only, HTTP+HTTPS Gateway, RBAC, Kyverno/Gatekeeper,
 kube-bench/runtime detector và không còn controller legacy. Có thể đổi topology bằng `EXPECTED_READY_NODES`,
 `EXPECTED_CONTROL_PLANES`, `EXPECTED_WORKERS` khi join thêm node.
+
+`EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu image
+node-local. Verifier sẽ yêu cầu đủ 18 backend pod và hai frontend pod mang đúng
+annotation `aims.hust.vn/source-revision`; lần chốt hiện tại dùng source commit
+`78291a9ae9156a2499cad1d9de81f5320eca17cf`.
 
 Nếu external Sentinel validation bật binding
 `sentinel-experiment-resource-lock`, verifier ghi riêng bốn controller đo tải là

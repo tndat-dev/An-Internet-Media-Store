@@ -3,8 +3,11 @@
 **Đơn vị học phần:** HUST – ISD.20252-18  
 **Dự án:** AIMS (An Internet Media Store)  
 **Môi trường:** `production` trên cụm kubeadm on-premise  
-**Ngày chốt báo cáo:** 03/08/2026 (UTC+7)
-**Thư mục mã nguồn:** `Programming/k8s/`  
+**Ngày cập nhật gần nhất:** 09/09/2026 (UTC+7)
+
+**Repository làm việc:** `/home/tndat/An-Internet-Media-Store`
+
+**Thư mục mã triển khai:** `Programming/k8s/`
 
 > Báo cáo không chứa mật khẩu, Vault token, private key hoặc giá trị Secret. Mọi
 > thông tin xác thực được lưu trong Vault/Kubernetes Secret và chỉ được nhắc tới
@@ -1080,6 +1083,49 @@ cài. Vì vậy Hubble là UI network flow hiện tại, RabbitMQ Management là
 queue, còn Kafka quản trị bằng Strimzi CR/CLI. Danh sách URL, lệnh tunnel và quy
 tắc không lưu credential trong Git được trình bày đầy đủ tại mục 4.3 của
 [`AIMS_OPERATION_FLOW_REPORT.md`](AIMS_OPERATION_FLOW_REPORT.md).
+
+### 14.14 Đồng bộ source ứng dụng và nghiệm thu ngày 09/09/2026
+
+Nguồn chuẩn đã được chuyển hoàn toàn sang repository
+`/home/tndat/An-Internet-Media-Store`; không sử dụng workspace HUST làm nguồn
+deploy. Trên control-plane chính có hai bản phục vụ hai mục đích khác nhau:
+
+- `/home/dat/An-Internet-Media-Store`: clone Git đầy đủ để đối chiếu source,
+  lịch sử commit, pipeline và báo cáo;
+- `/home/dat/aims-deploy-20260729`: snapshot vận hành của `Programming/k8s`,
+  dùng trực tiếp cho script reconcile/audit.
+
+Kiểm tra runtime phát hiện pod trước đó còn chạy image build cũ mặc dù Argo CD
+đã đồng bộ manifest. Backend và frontend được build lại từ source commit
+`78291a9ae9156a2499cad1d9de81f5320eca17cf`; backend test với PostgreSQL 17.6
+đạt **207/207 test**. Image node-local mới được import vào containerd trên cả
+ba worker. Image config đang chạy là `sha256:6dc61c529edf…` cho 18 backend pod
+và `sha256:9969c09b8b35…` cho hai frontend pod. Mỗi pod có annotation
+`aims.hust.vn/source-revision=78291a9ae9156a2499cad1d9de81f5320eca17cf`, nhờ
+đó revision source có thể kiểm tra độc lập với revision GitOps.
+
+Hai frontend replica từng dồn lên cùng worker do server-side apply giữ phần tử
+list topology cũ. Helm chart đã thêm `minDomains: 2`,
+`whenUnsatisfiable: DoNotSchedule` và required pod anti-affinity theo
+`pod-template-hash`; live Deployment được thay chính xác list scheduling rồi
+Argo CD tiếp tục quản lý. Kết quả cuối: frontend nằm trên worker3/worker4 và 18
+backend pod cân bằng worker1/worker3/worker4 theo tỷ lệ **6/6/6**.
+
+Trong cùng đợt nghiệm thu, Vault replica bị sealed đã được unseal, pod Velero có
+network namespace cũ được restart, `BackupStorageLocation/default` trở lại
+`Available`, và ignore rule RuntimeClass còn sót trên live Argo Application đã
+được loại bỏ. Bốn replica payment/notification hiện chạy RuntimeClass
+`sandbox`. Backup `production-smoke-20260908173348` hoàn tất; restore drill
+`aims-config-drill-20260908173721` phục hồi 12 ConfigMap vào namespace cô lập,
+không phục hồi Pod/Secret/PVC/controller và đã xóa namespace tạm.
+
+Audit cuối tại GitOps revision
+`d438eae49b020cceae0f2167869876b14bd458dc` đạt toàn bộ assertion: 6/6 node
+Ready, không DiskPressure, 0 pod lỗi/Unknown, 0 Job đang failed, 0 PVC unbound,
+9/9 Rollout, 18/18 backend, 2/2 frontend, 28/28 Longhorn volume healthy,
+HTTP/HTTPS đều đạt 6/6 mẫu, và toàn bộ verifier AIMS/CKS exit 0. Verifier nhận
+thêm biến `EXPECTED_SOURCE_REVISION` để đối chiếu annotation source trên cả 20
+pod ứng dụng trong những lần audit sau.
 
 ## 15. Kết luận
 

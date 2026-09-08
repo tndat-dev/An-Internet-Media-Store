@@ -15,6 +15,7 @@ check() {
 expected_nodes=${EXPECTED_READY_NODES:-6}
 expected_control_planes=${EXPECTED_CONTROL_PLANES:-3}
 expected_workers=${EXPECTED_WORKERS:-3}
+expected_source_revision=${EXPECTED_SOURCE_REVISION:-}
 
 nodes=$(kubectl get nodes -o json)
 ready_nodes=$(jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length' <<< "$nodes")
@@ -36,6 +37,11 @@ check "Healthy AIMS Rollouts" "$(jq '[.items[] | select(.status.phase == "Health
 pods=$(kubectl -n production get pods -l aims.hust.vn/workload-group=microservices -o json)
 check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" 18
 
+if [[ -n "${expected_source_revision}" ]]; then
+  check "Backend source revision" \
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 18
+fi
+
 frontend=$(kubectl -n production get deployment aims-frontend -o json)
 check "Ready frontend replicas" "$(jq -r '.status.readyReplicas // 0' <<< "$frontend")" 2
 check "Frontend managed by Helm" "$(jq -r '.metadata.labels["app.kubernetes.io/managed-by"] // ""' <<< "$frontend")" Helm
@@ -43,6 +49,10 @@ check "Frontend runs non-root" "$(jq -r '.spec.template.spec.securityContext.run
 check "Frontend read-only rootfs" "$(jq -r '.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem' <<< "$frontend")" true
 frontend_pods=$(kubectl -n production get pods -l app=aims-frontend -o json)
 check "Frontend replicas on distinct nodes" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true) | .spec.nodeName] | unique | length' <<< "$frontend_pods")" 2
+if [[ -n "${expected_source_revision}" ]]; then
+  check "Frontend source revision" \
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$frontend_pods")" 2
+fi
 
 mapfile -t worker_names < <(jq -r '.items[] | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null) | .metadata.name' <<< "$nodes" | sort)
 counts=()

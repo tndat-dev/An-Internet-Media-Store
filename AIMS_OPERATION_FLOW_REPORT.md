@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 11/08/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 09/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
@@ -22,10 +22,12 @@ rõ:
    resource con. Vì vậy `kubectl diff` có thể thấy metadata/operator default mà
    không phải drift cấu hình.
 
-Snapshot triển khai trên control-plane tại
-`/home/dat/aims-deploy-20260729` dùng để bootstrap/reconcile platform. Sau lần
-đồng bộ này, toàn bộ `platform/*.yaml`, `cks-lab/*.yaml`, Helm chart và
-`scripts/*.sh` tại đó được lấy lại từ cùng revision Git.
+Repository làm việc duy nhất trên workstation là
+`/home/tndat/An-Internet-Media-Store`. Control-plane giữ clone Git đầy đủ tại
+`/home/dat/An-Internet-Media-Store` và snapshot K8s dùng cho vận hành tại
+`/home/dat/aims-deploy-20260729`. Không dùng workspace HUST làm nguồn deploy.
+Sau mỗi lần đồng bộ, `platform/*.yaml`, `cks-lab/*.yaml`, Helm chart và script
+trên snapshot phải có checksum giống cùng revision Git.
 
 ## 2. Sơ đồ tổng thể
 
@@ -426,16 +428,25 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Vault | 3/3 Ready và unsealed |
 | Istio Ambient | ztunnel 6/6, waypoint Ready, mTLS STRICT |
 | Longhorn | 28/28 volume healthy |
-| Argo CD | `Synced/Healthy`, revision Git đã chốt |
+| Argo CD | `Synced/Healthy`, revision GitOps `d438eae…` tại lần audit |
+| Source runtime | 20/20 pod ghi annotation source `78291a9…` |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 
 ## 12. Quy trình đồng bộ và kiểm chứng
 
-### 12.1 Đồng bộ snapshot triển khai trên master
+### 12.1 Đồng bộ clone và snapshot triển khai trên master
 
-Từ workstation, đồng bộ đúng thư mục K8s; không sao chép `.git`, credential hay
-file môi trường:
+Clone Git đầy đủ nằm ở `/home/dat/An-Internet-Media-Store`; cập nhật bằng fast
+forward để giữ nguyên lịch sử:
+
+```bash
+ssh dat@10.1.16.234 \
+  'git -C /home/dat/An-Internet-Media-Store pull --ff-only origin main'
+```
+
+Snapshot vận hành chỉ chứa nội dung `Programming/k8s`, không chứa `.git`,
+credential hay file môi trường:
 
 ```bash
 rsync -a --delete \
@@ -443,9 +454,16 @@ rsync -a --delete \
   dat@10.1.16.234:/home/dat/aims-deploy-20260729/
 ```
 
+Với tag lab `prod-sim`, manifest Git không đủ để chứng minh binary mới: phải
+build backend/frontend từ source sạch, chạy test, import cùng archive image vào
+containerd namespace `k8s.io` trên cả ba worker, rồi đổi `sourceRevision` trong
+Helm values để Argo tạo revision pod mới. Lần này source commit là
+`78291a9ae9156a2499cad1d9de81f5320eca17cf`; image config backend/frontend đang
+chạy lần lượt là `sha256:6dc61c529edf…` và `sha256:9969c09b8b35…`.
+
 Trong lần bàn giao này, checksum được đối chiếu cho toàn bộ manifest/script sau
-khi copy. Thư mục báo cáo ở root repository được đồng bộ riêng vào workspace
-HUST để nộp bài; nó không cần nằm trên control-plane để Kubernetes chạy.
+khi copy. Báo cáo, source ứng dụng và pipeline nằm trong clone Git đầy đủ;
+snapshot K8s chỉ phục vụ reconcile/audit trên control-plane.
 
 ### 12.2 Audit read-only trên control-plane
 
@@ -453,6 +471,7 @@ HUST để nộp bài; nó không cần nằm trên control-plane để Kubernet
 cd /home/dat/aims-deploy-20260729
 EXPECTED_REVISION="$(kubectl -n argocd get application aims-production \
   -o jsonpath='{.status.sync.revision}')" \
+EXPECTED_SOURCE_REVISION=78291a9ae9156a2499cad1d9de81f5320eca17cf \
   scripts/audit-live-sync.sh
 ```
 
