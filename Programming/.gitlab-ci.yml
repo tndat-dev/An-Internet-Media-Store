@@ -191,7 +191,7 @@ update-gitops:
     - BACKEND_DIGEST="${BACKEND_IMAGE_DIGEST#*@}"
     - FRONTEND_REPOSITORY="${FRONTEND_IMAGE_DIGEST%@*}"
     - FRONTEND_DIGEST="${FRONTEND_IMAGE_DIGEST#*@}"
-    - yq -i '.backendImage.repository = strenv(BACKEND_REPOSITORY) | .backendImage.tag = strenv(BACKEND_DIGEST) | .frontend.image.repository = strenv(FRONTEND_REPOSITORY) | .frontend.image.tag = strenv(FRONTEND_DIGEST) | .frontend.nodeSelector = {}' Programming/k8s/aims-chart/values.yaml
+    - yq -i '.backendImage.repository = strenv(BACKEND_REPOSITORY) | .backendImage.tag = strenv(BACKEND_DIGEST) | .frontend.image.repository = strenv(FRONTEND_REPOSITORY) | .frontend.image.tag = strenv(FRONTEND_DIGEST) | .frontend.nodeSelector = {} | .sourceRevision = strenv(CI_COMMIT_SHA)' Programming/k8s/aims-chart/values.yaml
     - git add Programming/k8s/aims-chart/values.yaml
     # Avoid a build -> GitOps commit -> build loop; Argo CD still observes it.
     - git commit -m "deploy(production): ${CI_COMMIT_SHA} [skip ci]" || exit 0

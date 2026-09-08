@@ -48,6 +48,7 @@ spec:
     metadata:
       annotations:
         backup.velero.io/backup-volumes-excludes: tmp,next-cache
+        aims.hust.vn/source-revision: {{ .Values.sourceRevision | quote }}
       labels:
         app: aims-frontend
         app.kubernetes.io/name: aims-frontend

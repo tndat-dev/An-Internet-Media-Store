@@ -57,6 +57,7 @@ spec:
     metadata:
       annotations:
         backup.velero.io/backup-volumes-excludes: tmp
+        aims.hust.vn/source-revision: {{ $.Values.sourceRevision | quote }}
       labels:
         app.kubernetes.io/name: {{ .name }}
         app.kubernetes.io/part-of: aims

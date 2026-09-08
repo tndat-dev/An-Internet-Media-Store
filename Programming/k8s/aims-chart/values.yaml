@@ -3,6 +3,11 @@ backendImage:
   tag: prod-sim
   pullPolicy: IfNotPresent
 
+# Immutable source revision used to force a controlled rollout when a node-local
+# lab image is rebuilt under the stable prod-sim tag. Registry deployments use
+# an image digest and update this value to the commit that produced that digest.
+sourceRevision: "78291a9ae9156a2499cad1d9de81f5320eca17cf"
+
 frontend:
   replicas: 2
   # Lab-only placement for the node-local prod-sim image. Set to {} after CI
