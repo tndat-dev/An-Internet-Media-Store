@@ -76,6 +76,7 @@ spec:
           type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
+          minDomains: 2
           topologyKey: kubernetes.io/hostname
           # Only worker3/worker4 carry the node-local frontend image. Enforce
           # one replica per failure domain; maxSurge can still place a third
@@ -86,13 +87,15 @@ spec:
               app: aims-frontend
       affinity:
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: aims-frontend
-                topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: aims-frontend
+              # Scope anti-affinity to the current Deployment revision so the
+              # maxSurge pod can start before an old revision is terminated.
+              matchLabelKeys:
+                - pod-template-hash
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: web
           {{- if hasPrefix "sha256:" .Values.frontend.image.tag }}
