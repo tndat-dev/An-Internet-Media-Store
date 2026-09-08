@@ -77,7 +77,10 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          # Only worker3/worker4 carry the node-local frontend image. Enforce
+          # one replica per failure domain; maxSurge can still place a third
+          # temporary pod because a 2/1 distribution keeps maxSkew at one.
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: aims-frontend
