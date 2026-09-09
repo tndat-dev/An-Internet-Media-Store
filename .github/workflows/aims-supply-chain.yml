@@ -133,7 +133,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
       - name: Scan immutable image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           format: sarif
@@ -151,7 +151,7 @@ jobs:
           category: trivy-${{ matrix.component }}
 
       - name: Enforce critical vulnerability gate
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           format: table
@@ -160,14 +160,14 @@ jobs:
           exit-code: "1"
 
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.24.2
         with:
           image: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.component }}.cdx.json
           upload-artifact: false
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: Generate SLSA v1 predicate
         env:
