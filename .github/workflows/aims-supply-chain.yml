@@ -16,7 +16,9 @@ permissions:
 
 concurrency:
   group: aims-production-${{ github.ref }}
-  cancel-in-progress: false
+  # Only the newest source revision may be promoted. This also prevents a
+  # failed matrix job from leaving other Cosign verification jobs blocking CI.
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -89,6 +91,7 @@ jobs:
     name: Build and attest ${{ matrix.component }}
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -203,6 +206,7 @@ jobs:
             --predicate "provenance-${COMPONENT}.json" "$IMAGE"
 
       - name: Verify keyless signature and attestations
+        timeout-minutes: 5
         env:
           IMAGE: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/aims-supply-chain.yml@refs/heads/main
