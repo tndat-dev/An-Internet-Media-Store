@@ -54,7 +54,13 @@ services:
   - name: notification-service
     replicas: 2
     sandbox: true
-    image: {}
+    image:
+      repository: aims-notification-service
+      tag: dev-sim
+      pullPolicy: IfNotPresent
+    sourceRevision: "3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f"
+    kafkaTlsSecret: aims-services
+    kafkaConsumerTopic: aims.business.payment.completed.v1
   - name: security-telemetry-service
     replicas: 2
     localhostProfiles: true
