@@ -38,6 +38,7 @@ function loadBackendPublicEnv() {
 loadBackendPublicEnv();
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
     remotePatterns: [
       {
