@@ -60,6 +60,7 @@ services:
       pullPolicy: IfNotPresent
     sourceRevision: "3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f"
     kafkaTlsSecret: aims-services
+    kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
     kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
     kafkaConsumerTopic: aims.business.payment.completed.v1
   - name: security-telemetry-service

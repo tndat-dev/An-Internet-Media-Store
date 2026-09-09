@@ -150,6 +150,10 @@ spec:
             - name: KAFKA_NOTIFICATION_TOPIC
               value: {{ .kafkaConsumerTopic | quote }}
             {{- end }}
+            {{- if .kafkaClusterCaSecret }}
+            - name: KAFKA_TLS_CA
+              value: /var/run/aims-kafka-ca/ca.crt
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000
@@ -205,6 +209,11 @@ spec:
               mountPath: /var/run/aims-kafka
               readOnly: true
             {{- end }}
+            {{- if .kafkaClusterCaSecret }}
+            - name: kafka-cluster-ca
+              mountPath: /var/run/aims-kafka-ca
+              readOnly: true
+            {{- end }}
           resources:
 {{ toYaml $.Values.resources | indent 12 }}
       volumes:
@@ -215,6 +224,12 @@ spec:
         - name: kafka-tls
           secret:
             secretName: {{ .kafkaTlsSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .kafkaClusterCaSecret }}
+        - name: kafka-cluster-ca
+          secret:
+            secretName: {{ .kafkaClusterCaSecret }}
             defaultMode: 0400
         {{- end }}
 {{- end }}
