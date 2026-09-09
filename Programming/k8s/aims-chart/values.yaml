@@ -8,7 +8,7 @@ imagePullSecrets:
 # Immutable source revision used to force a controlled rollout when a node-local
 # lab image is rebuilt under the stable prod-sim tag. Registry deployments use
 # an image digest and update this value to the commit that produced that digest.
-sourceRevision: "aa205e7e6879af280803e094f48b8893a2d406f0"
+sourceRevision: "718695eeecc50a2495e1b0a3f8a4d34f1483f9a4"
 
 frontend:
   replicas: 2
@@ -65,7 +65,7 @@ services:
     KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
     KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
     KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
-  sourceRevision: aa205e7e6879af280803e094f48b8893a2d406f0
+  sourceRevision: 718695eeecc50a2495e1b0a3f8a4d34f1483f9a4
 - name: notification-service
   replicas: 2
   sandbox: true
@@ -73,7 +73,7 @@ services:
     repository: ghcr.io/tndat-dev/aims-notification-service
     tag: sha256:be92f7a28ada7bec98d32479034580ccca2cde79d483e6a84ab323588449a0a3
     pullPolicy: IfNotPresent
-  sourceRevision: "aa205e7e6879af280803e094f48b8893a2d406f0"
+  sourceRevision: "718695eeecc50a2495e1b0a3f8a4d34f1483f9a4"
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
