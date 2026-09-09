@@ -25,6 +25,23 @@ jobs:
   test:
     name: Test application
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: aims
+          POSTGRES_USER: aims
+          POSTGRES_PASSWORD: aims-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aims -d aims"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://aims:aims-ci@127.0.0.1:5432/aims
+      DJANGO_SECRET_KEY: ci-only
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +76,7 @@ jobs:
         run: |
           npm ci
           npm run lint
-          npm run build
+          npm run typecheck
 
   build:
     name: Build and attest ${{ matrix.component }}
