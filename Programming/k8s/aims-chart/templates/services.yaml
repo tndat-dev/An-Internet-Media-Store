@@ -113,7 +113,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: app
-          {{- $image := merge (deepCopy $.Values.backendImage) (.image | default dict) }}
+          {{- $image := mergeOverwrite (deepCopy $.Values.backendImage) (.image | default dict) }}
           {{ if hasPrefix "sha256:" $image.tag }}
           image: {{ $image.repository }}@{{ $image.tag }}
           {{ else }}
