@@ -379,6 +379,25 @@ nên policy supply-chain còn Audit. Sau lần pipeline registry thật đầu t
 điền đúng registry/identity, verify thành công rồi mới chuyển Enforce; các policy
 runtime khác và PSA Restricted hiện đã Enforce/deny.
 
+### 8.1 Jenkins CI, Argo CD và service extraction
+
+Jenkins chạy tại namespace `jenkins`, có PVC Longhorn 20 GiB và Kubernetes
+ephemeral agent. Controller để `numExecutors: 0`, chỉ tạo agent trong namespace
+của Jenkins; controller/agent không có quyền đọc Secret và không có quyền deploy
+vào `production`. Pipeline as code là `Jenkinsfile`: test trước, sau đó khi đã
+cấp registry/Cosign/GitOps credential ngắn hạn mới bật build/scan/sign và tạo
+GitOps change. Argo CD vẫn là thành phần duy nhất reconcile manifest xuống cụm.
+
+`notification-service` là lát cắt đầu tiên tách thật khỏi Django monolith.
+Nó có image/source/test riêng, chạy gVisor và consume
+`aims.business.payment.completed.v1` bằng group
+`aims-notification-service.v1`. TLS client certificate lấy từ KafkaUser
+`aims-services`; CA xác minh broker lấy riêng từ
+`aims-kafka-cluster-ca-cert`. Native TLS Kafka dùng listener `9093`; Ambient
+chỉ mở `PeerAuthentication PERMISSIVE` tại port này, còn Strimzi client TLS và
+Kafka ACL vẫn bắt buộc. Event smoke `PaymentCompleted` đã được producer publish
+và consumer xử lý thành công.
+
 ## 9. Luồng backup và phục hồi
 
 ```mermaid
@@ -427,9 +446,10 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | OpenSearch | 3/3 |
 | Vault | 3/3 Ready và unsealed |
 | Istio Ambient | ztunnel 6/6, waypoint Ready, mTLS STRICT |
-| Longhorn | 28/28 volume healthy |
-| Argo CD | `Synced/Healthy`, revision GitOps `d438eae…` tại lần audit |
-| Source runtime | 20/20 pod ghi annotation source `78291a9…` |
+| Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
+| Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
+| Argo CD | `Synced/Healthy`, GitOps revision được audit trước mỗi lần nghiệm thu |
+| Source runtime | 16 Django compatibility pod + 2 notification pod source riêng + 2 frontend |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 
@@ -472,6 +492,7 @@ cd /home/dat/aims-deploy-20260729
 EXPECTED_REVISION="$(kubectl -n argocd get application aims-production \
   -o jsonpath='{.status.sync.revision}')" \
 EXPECTED_SOURCE_REVISION=78291a9ae9156a2499cad1d9de81f5320eca17cf \
+EXPECTED_NOTIFICATION_SOURCE_REVISION=3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f \
   scripts/audit-live-sync.sh
 ```
 
@@ -507,8 +528,9 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
   `kubectl`.
 - GitLab Runner/Registry/OIDC thật không chạy trong cụm; pipeline đã có code
   nhưng cần import/mirror repository và cấp masked credential để chạy end-to-end.
-- Chín deployment unit chưa phải chín codebase độc lập; các publisher/consumer
-  Kafka/RabbitMQ và ML inference cần được hiện thực trong application code.
+- Mới `notification-service` là codebase/image độc lập; 8 domain còn lại đang
+  compatibility mode và phải chuyển dần qua database ownership, outbox và
+  contract Kafka, không copy Django image rồi đổi tên workload.
 - SLSA provenance tự sinh trong job chỉ được tuyên bố tương thích Build L1;
   mức L2/L3 cần builder độc lập/hardened sinh provenance.
 - Backup MinIO cần replication/off-cluster nếu muốn chống mất toàn cụm.
