@@ -57,7 +57,7 @@ spec:
     metadata:
       annotations:
         backup.velero.io/backup-volumes-excludes: tmp
-        aims.hust.vn/source-revision: {{ $.Values.sourceRevision | quote }}
+        aims.hust.vn/source-revision: {{ (.sourceRevision | default $.Values.sourceRevision) | quote }}
       labels:
         app.kubernetes.io/name: {{ .name }}
         app.kubernetes.io/part-of: aims
@@ -113,12 +113,13 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: app
-          {{ if hasPrefix "sha256:" $.Values.backendImage.tag }}
-          image: {{ $.Values.backendImage.repository }}@{{ $.Values.backendImage.tag }}
+          {{- $image := merge (deepCopy $.Values.backendImage) (.image | default dict) }}
+          {{ if hasPrefix "sha256:" $image.tag }}
+          image: {{ $image.repository }}@{{ $image.tag }}
           {{ else }}
-          image: {{ $.Values.backendImage.repository }}:{{ $.Values.backendImage.tag }}
+          image: {{ $image.repository }}:{{ $image.tag }}
           {{ end }}
-          imagePullPolicy: {{ $.Values.backendImage.pullPolicy }}
+          imagePullPolicy: {{ $image.pullPolicy }}
           envFrom:
             - secretRef:
                 name: {{ $.Values.runtimeSecret }}
@@ -145,6 +146,10 @@ spec:
               value: {{ $.Values.integrations.otlpEndpoint | quote }}
             - name: OTEL_SERVICE_NAME
               value: {{ .name | quote }}
+            {{- if .kafkaConsumerTopic }}
+            - name: KAFKA_NOTIFICATION_TOPIC
+              value: {{ .kafkaConsumerTopic | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000
@@ -195,10 +200,21 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .kafkaTlsSecret }}
+            - name: kafka-tls
+              mountPath: /var/run/aims-kafka
+              readOnly: true
+            {{- end }}
           resources:
 {{ toYaml $.Values.resources | indent 12 }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 128Mi
+        {{- if .kafkaTlsSecret }}
+        - name: kafka-tls
+          secret:
+            secretName: {{ .kafkaTlsSecret }}
+            defaultMode: 0400
+        {{- end }}
 {{- end }}

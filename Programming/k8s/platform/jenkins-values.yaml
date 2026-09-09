@@ -1,0 +1,85 @@
+# Jenkins is CI only. Argo CD remains the sole CD reconciler for AIMS.
+# Install: helm upgrade --install aims-jenkins jenkins/jenkins \
+#   --namespace jenkins --version 5.9.56 -f platform/jenkins-values.yaml
+controller:
+  numExecutors: 0
+  serviceType: ClusterIP
+  servicePort: 8080
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  usePodSecurityContext: true
+  podSecurityContextOverride:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  installPlugins:
+    - kubernetes:4540.v612369217f87
+    - workflow-aggregator:608.v67378e9d3db_1
+    - git:5.10.1
+    - configuration-as-code:2121.v86fe99d4b_b_a_b_
+    - pipeline-stage-view:2.38
+  initializeOnce: true
+  testEnabled: false
+  JCasC:
+    defaultConfig: true
+    configScripts:
+      aims-ci: |
+        jenkins:
+          systemMessage: "AIMS CI: Jenkins builds, tests, scans and signs. Argo CD deploys GitOps revisions."
+  sidecars:
+    configAutoReload:
+      containerSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+agent:
+  enabled: true
+  namespace: jenkins
+  websocket: true
+  privileged: false
+  restrictedPssSecurityContext: true
+  podRetention: OnFailure
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+persistence:
+  enabled: true
+  storageClass: longhorn
+  accessMode: ReadWriteOnce
+  size: 20Gi
+rbac:
+  create: true
+  readSecrets: false
+serviceAccount:
+  create: true
+  name: aims-jenkins-controller
+serviceAccountAgent:
+  create: true
+  name: aims-jenkins-agent

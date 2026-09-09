@@ -1,0 +1,91 @@
+asyncapi: 3.0.0
+info:
+  title: AIMS business event contract
+  version: 0.1.0
+  description: >-
+    Versioned events for the incremental extraction of Order, Inventory,
+    Payment and Notification services. Producers use the transactional outbox;
+    consumers must be idempotent by eventId.
+servers:
+  kafka:
+    host: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
+    protocol: kafka
+channels:
+  aims.business.order.created.v1:
+    address: aims.business.order.created.v1
+    messages:
+      orderCreated:
+        $ref: '#/components/messages/OrderCreated'
+  aims.business.inventory.reserved.v1:
+    address: aims.business.inventory.reserved.v1
+    messages:
+      inventoryReserved:
+        $ref: '#/components/messages/InventoryReserved'
+  aims.business.payment.completed.v1:
+    address: aims.business.payment.completed.v1
+    messages:
+      paymentCompleted:
+        $ref: '#/components/messages/PaymentCompleted'
+operations:
+  publishOrderCreated:
+    action: send
+    channel:
+      $ref: '#/channels/aims.business.order.created.v1'
+  consumeOrderCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/aims.business.order.created.v1'
+components:
+  messages:
+    OrderCreated:
+      payload:
+        $ref: '#/components/schemas/OrderEvent'
+    InventoryReserved:
+      payload:
+        $ref: '#/components/schemas/InventoryEvent'
+    PaymentCompleted:
+      payload:
+        $ref: '#/components/schemas/PaymentEvent'
+  schemas:
+    EventEnvelope:
+      type: object
+      required: [eventId, eventType, eventVersion, occurredAt, aggregateId, correlationId]
+      properties:
+        eventId: {type: string, format: uuid}
+        eventType: {type: string}
+        eventVersion: {type: integer, minimum: 1}
+        occurredAt: {type: string, format: date-time}
+        aggregateId: {type: string, format: uuid}
+        correlationId: {type: string, format: uuid}
+    OrderEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [totalAmount, currency, items]
+          properties:
+            totalAmount: {type: string, pattern: '^[0-9]+\\.[0-9]{2}$'}
+            currency: {type: string, example: VND}
+            items:
+              type: array
+              items:
+                type: object
+                required: [productId, quantity]
+                properties:
+                  productId: {type: string, format: uuid}
+                  quantity: {type: integer, minimum: 1}
+    InventoryEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [reservationId, status]
+          properties:
+            reservationId: {type: string, format: uuid}
+            status: {type: string, enum: [RESERVED, REJECTED]}
+    PaymentEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [paymentId, status]
+          properties:
+            paymentId: {type: string, format: uuid}
+            status: {type: string, enum: [COMPLETED, FAILED]}

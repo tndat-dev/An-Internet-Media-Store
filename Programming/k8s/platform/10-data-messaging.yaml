@@ -327,6 +327,48 @@ spec:
     retention.ms: 1209600000
 ---
 apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.business.order.created.v1
+  namespace: production
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.business.inventory.reserved.v1
+  namespace: production
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.business.payment.completed.v1
+  namespace: production
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: aims-services

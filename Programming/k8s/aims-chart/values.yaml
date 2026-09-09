@@ -31,25 +31,34 @@ runtimeSecret: aims-runtime
 services:
   - name: api-gateway
     replicas: 2
+    image: {}
   - name: auth-service
     replicas: 2
+    image: {}
   - name: catalog-service
     replicas: 2
+    image: {}
   - name: cart-service
     replicas: 2
+    image: {}
   - name: order-service
     replicas: 2
+    image: {}
   - name: payment-service
     replicas: 2
     sandbox: true
+    image: {}
   - name: inventory-service
     replicas: 2
+    image: {}
   - name: notification-service
     replicas: 2
     sandbox: true
+    image: {}
   - name: security-telemetry-service
     replicas: 2
     localhostProfiles: true
+    image: {}
 
 integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
