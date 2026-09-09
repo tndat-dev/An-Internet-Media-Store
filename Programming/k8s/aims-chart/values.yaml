@@ -1,27 +1,23 @@
 backendImage:
-  repository: aims-backend
-  tag: prod-sim
+  repository: ghcr.io/tndat-dev/aims-backend
+  tag: sha256:ea79009cd3ba794ac7c6f079d08b8990113302dc47b92fae5b045c25415c682e
   pullPolicy: IfNotPresent
-
-# GHCR is private by default. Create this credential out-of-band or through an
-# ExternalSecret; never commit its token.
 imagePullSecrets:
-  - name: ghcr-pull
+- name: ghcr-pull
 
 # Immutable source revision used to force a controlled rollout when a node-local
 # lab image is rebuilt under the stable prod-sim tag. Registry deployments use
 # an image digest and update this value to the commit that produced that digest.
-sourceRevision: "78291a9ae9156a2499cad1d9de81f5320eca17cf"
+sourceRevision: "aa205e7e6879af280803e094f48b8893a2d406f0"
 
 frontend:
   replicas: 2
   # Lab-only placement for the node-local prod-sim image. Set to {} after CI
   # publishes the signed registry digest to all workers.
-  nodeSelector:
-    aims.hust.vn/frontend-image: prod-sim
+  nodeSelector: {}
   image:
-    repository: aims-frontend
-    tag: prod-sim
+    repository: ghcr.io/tndat-dev/aims-frontend
+    tag: sha256:79d0723c1d25be0d0d57dba105e9f6c0603bf85458674cc7295b2285cd52c6bb
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -34,54 +30,58 @@ frontend:
 runtimeSecret: aims-runtime
 
 services:
-  - name: api-gateway
-    replicas: 2
-    image: {}
-  - name: auth-service
-    replicas: 2
-    image: {}
-  - name: catalog-service
-    replicas: 2
-    image: {}
-  - name: cart-service
-    replicas: 2
-    image: {}
-  - name: order-service
-    replicas: 2
-    image: {}
-  - name: payment-service
-    replicas: 2
-    sandbox: true
-    image: {}
-  - name: inventory-service
-    replicas: 2
+- name: api-gateway
+  replicas: 2
+  image: {}
+- name: auth-service
+  replicas: 2
+  image: {}
+- name: catalog-service
+  replicas: 2
+  image: {}
+- name: cart-service
+  replicas: 2
+  image: {}
+- name: order-service
+  replicas: 2
+  image: {}
+- name: payment-service
+  replicas: 2
+  sandbox: true
+  image: {}
+- name: inventory-service
+  replicas: 2
     # The workflow replaces this compatibility image with the independently
     # built GHCR digest only after scan/sign/attestation succeeds.
-    image: {}
-    kafkaTlsSecret: aims-services
-    kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
-    kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
-    kafkaConsumerTopic: aims.business.order.created.v1
-    extraEnv:
-      KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
-      KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
-      KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
-  - name: notification-service
-    replicas: 2
-    sandbox: true
-    image:
-      repository: aims-notification-service
-      tag: dev-sim
-      pullPolicy: IfNotPresent
-    sourceRevision: "3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f"
-    kafkaTlsSecret: aims-services
-    kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
-    kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
-    kafkaConsumerTopic: aims.business.payment.completed.v1
-  - name: security-telemetry-service
-    replicas: 2
-    localhostProfiles: true
-    image: {}
+  image:
+    repository: ghcr.io/tndat-dev/aims-inventory-service
+    tag: sha256:263765f884183a5a9fcf6ce040852b12846f958240ed98b8110df3a75d422e09
+    pullPolicy: IfNotPresent
+  kafkaTlsSecret: aims-services
+  kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
+  kafkaConsumerTopic: aims.business.order.created.v1
+  extraEnv:
+    KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
+    KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
+    KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
+  sourceRevision: aa205e7e6879af280803e094f48b8893a2d406f0
+- name: notification-service
+  replicas: 2
+  sandbox: true
+  image:
+    repository: ghcr.io/tndat-dev/aims-notification-service
+    tag: sha256:be92f7a28ada7bec98d32479034580ccca2cde79d483e6a84ab323588449a0a3
+    pullPolicy: IfNotPresent
+  sourceRevision: "aa205e7e6879af280803e094f48b8893a2d406f0"
+  kafkaTlsSecret: aims-services
+  kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
+  kafkaConsumerTopic: aims.business.payment.completed.v1
+- name: security-telemetry-service
+  replicas: 2
+  localhostProfiles: true
+  image: {}
 
 integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
