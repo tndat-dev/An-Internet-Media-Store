@@ -51,7 +51,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             Programming/backend/requirements.txt
-            services/notification-service/requirements.txt
+            services/notification-service/requirements-dev.txt
 
       - name: Test Django backend
         run: |
@@ -61,7 +61,7 @@ jobs:
 
       - name: Test notification service
         run: |
-          python -m pip install -r services/notification-service/requirements.txt
+          python -m pip install -r services/notification-service/requirements-dev.txt
           cd services/notification-service
           pytest -q
 
