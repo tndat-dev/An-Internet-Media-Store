@@ -15,7 +15,9 @@ permissions:
   attestations: write
 
 concurrency:
-  group: aims-production-${{ github.ref }}
+  # v2 separates this bounded workflow from stale pre-timeout runs created
+  # before cancellation was enabled.
+  group: aims-production-v2-${{ github.ref }}
   # Only the newest source revision may be promoted. This also prevents a
   # failed matrix job from leaving other Cosign verification jobs blocking CI.
   cancel-in-progress: true
