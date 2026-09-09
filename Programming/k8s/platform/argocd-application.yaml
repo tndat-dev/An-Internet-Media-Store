@@ -8,7 +8,8 @@ metadata:
 spec:
   project: default
   source:
-    # GitLab CI pushes the verified digest here through masked GITOPS_PUSH_URL.
+    # GitHub Actions promotes verified GHCR digests here; Argo CD remains the
+    # only actor applying this desired state to production.
     repoURL: https://github.com/tndat-dev/An-Internet-Media-Store.git
     targetRevision: main
     path: Programming/k8s/aims-chart

@@ -11,5 +11,6 @@ Programming/frontend/tsconfig.tsbuildinfo
 !AIMS_KAFKA_DEPLOYMENT_REPORT.md
 !AIMS_CKS_PRACTICE_REPORT.md
 !AIMS_OPERATION_FLOW_REPORT.md
+!AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md
 !Programming/k8s/README.md
 !Programming/k8s/cks-lab/README.md

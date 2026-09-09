@@ -59,6 +59,10 @@ spec:
       serviceAccountName: aims-frontend
       automountServiceAccountToken: false
       enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 30
       {{- with .Values.frontend.nodeSelector }}
       nodeSelector:

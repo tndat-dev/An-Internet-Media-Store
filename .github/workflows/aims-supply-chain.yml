@@ -1,0 +1,246 @@
+name: AIMS supply chain
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  security-events: write
+  attestations: write
+
+concurrency:
+  group: aims-production-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    name: Test application
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            Programming/backend/requirements.txt
+            services/notification-service/requirements.txt
+
+      - name: Test Django backend
+        run: |
+          python -m pip install -r Programming/backend/requirements.txt
+          cd Programming/backend
+          pytest -q
+
+      - name: Test notification service
+        run: |
+          python -m pip install -r services/notification-service/requirements.txt
+          cd services/notification-service
+          pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Programming/frontend/package-lock.json
+
+      - name: Validate frontend
+        working-directory: Programming/frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+  build:
+    name: Build and attest ${{ matrix.component }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            image: aims-backend
+            context: Programming/backend
+            dockerfile: Programming/backend/Dockerfile
+          - component: frontend
+            image: aims-frontend
+            context: Programming/frontend
+            dockerfile: Programming/frontend/Dockerfile
+          - component: notification-service
+            image: aims-notification-service
+            context: services/notification-service
+            dockerfile: services/notification-service/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable image name
+        id: image
+        shell: bash
+        run: |
+          repository="${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}"
+          echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ steps.image.outputs.repository }}:${{ github.sha }}
+            ${{ steps.image.outputs.repository }}:main
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Scan immutable image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-${{ matrix.component }}.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Upload vulnerability findings
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: trivy-${{ matrix.component }}.sarif
+          category: trivy-${{ matrix.component }}
+
+      - name: Enforce critical vulnerability gate
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom-${{ matrix.component }}.cdx.json
+          upload-artifact: false
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Generate SLSA v1 predicate
+        env:
+          AIMS_COMPONENT: ${{ matrix.component }}
+          AIMS_IMAGE: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          AIMS_SBOM: sbom-${{ matrix.component }}.cdx.json
+        run: |
+          Programming/k8s/scripts/generate-slsa-provenance.sh \
+            "$AIMS_COMPONENT" "$AIMS_IMAGE" "$AIMS_SBOM" \
+            "provenance-${AIMS_COMPONENT}.json"
+
+      - name: Keyless sign and attach in-toto attestations
+        env:
+          COSIGN_YES: "true"
+          IMAGE: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          cosign sign "$IMAGE"
+          cosign attest --type cyclonedx \
+            --predicate "sbom-${COMPONENT}.cdx.json" "$IMAGE"
+          cosign attest --type slsaprovenance \
+            --predicate "provenance-${COMPONENT}.json" "$IMAGE"
+
+      - name: Verify keyless signature and attestations
+        env:
+          IMAGE: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/aims-supply-chain.yml@refs/heads/main
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          cosign verify --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
+          cosign verify-attestation --type cyclonedx \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
+          cosign verify-attestation --type slsaprovenance \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
+
+      - name: Record digest for GitOps
+        env:
+          REPOSITORY: ${{ steps.image.outputs.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          jq -n --arg repository "$REPOSITORY" --arg digest "$DIGEST" \
+            '{repository: $repository, digest: $digest}' \
+            > digest-${{ matrix.component }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.component }}
+          path: digest-${{ matrix.component }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  update-gitops:
+    name: Update GitOps image digests
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: .artifacts/digests
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update Helm values with verified digests
+        run: |
+          python -m pip install 'ruamel.yaml==0.18.15'
+          python Programming/k8s/scripts/update-gitops-images.py \
+            --values Programming/k8s/aims-chart/values.yaml \
+            --digests .artifacts/digests \
+            --source-revision "${GITHUB_SHA}"
+
+      - name: Commit GitOps revision
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Programming/k8s/aims-chart/values.yaml
+          if git diff --cached --quiet; then
+            echo "GitOps values already reference this release"
+            exit 0
+          fi
+          git commit -m "deploy: promote signed AIMS images ${GITHUB_SHA::12} [skip ci]"
+          git push origin HEAD:main

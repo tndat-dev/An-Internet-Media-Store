@@ -8,10 +8,10 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
 spec:
-  # The current lab image aims-backend:prod-sim is local and unsigned. Keep
-  # admission in Audit until the first GitLab registry pipeline has completed,
-  # then change this to Enforce.
-  validationFailureAction: Audit
+  # Enforcement applies to GHCR images promoted by the AIMS GitHub workflow.
+  # Existing node-local lab images do not match imageReferences; once the first
+  # signed release is promoted, every matching GHCR image must verify.
+  validationFailureAction: Enforce
   background: true
   webhookTimeoutSeconds: 30
   rules:
@@ -25,18 +25,18 @@ spec:
                 - production
       verifyImages:
         - imageReferences:
-            - "registry.gitlab.com/jayyyyte/isd.20252-18/aims-*"
+            - "ghcr.io/tndat-dev/aims-*"
           required: true
-          # Kyverno forbids mutation in Audit mode. Set true together with
-          # validationFailureAction=Enforce after the first signed release.
+          # GitOps already supplies immutable digests, so admission verifies
+          # without rewriting the Pod image reference.
           mutateDigest: false
           verifyDigest: true
           attestors:
             - count: 1
               entries:
                 - keyless:
-                    subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
-                    issuer: "https://gitlab.com"
+                    subject: "https://github.com/tndat-dev/An-Internet-Media-Store/.github/workflows/aims-supply-chain.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
                     rekor:
                       url: https://rekor.sigstore.dev
           attestations:
@@ -45,25 +45,25 @@ spec:
                 - count: 1
                   entries:
                     - keyless:
-                        subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
-                        issuer: "https://gitlab.com"
+                        subject: "https://github.com/tndat-dev/An-Internet-Media-Store/.github/workflows/aims-supply-chain.yml@refs/heads/main"
+                        issuer: "https://token.actions.githubusercontent.com"
                         rekor:
                           url: https://rekor.sigstore.dev
               conditions:
                 - all:
                     - key: "{{ buildDefinition.buildType }}"
                       operator: Equals
-                      value: https://gitlab.com/aims/buildtypes/container/v1
+                      value: https://github.com/aims/buildtypes/container/v1
                     - key: "{{ runDetails.builder.id }}"
                       operator: Equals
-                      value: https://gitlab.com/aims/gitlab-runner/container-build@v1
+                      value: "https://github.com/tndat-dev/An-Internet-Media-Store/.github/workflows/aims-supply-chain.yml@refs/heads/main"
             - type: https://cyclonedx.org/schema
               attestors:
                 - count: 1
                   entries:
                     - keyless:
-                        subjectRegExp: "^https://gitlab\\.com/jayyyyte/[Ii][Ss][Dd]\\.20252-18//\\.gitlab-ci\\.yml@refs/heads/(main|master)$"
-                        issuer: "https://gitlab.com"
+                        subject: "https://github.com/tndat-dev/An-Internet-Media-Store/.github/workflows/aims-supply-chain.yml@refs/heads/main"
+                        issuer: "https://token.actions.githubusercontent.com"
                         rekor:
                           url: https://rekor.sigstore.dev
               conditions:

@@ -23,6 +23,8 @@ Báo cáo kiến trúc, lý thuyết, triển khai và sự cố đầy đủ n�
 diễn giải request, nghiệp vụ, data/messaging, security telemetry, supply chain,
 backup cùng quy trình chứng minh Git/live đồng bộ nằm tại
 [`../../AIMS_OPERATION_FLOW_REPORT.md`](../../AIMS_OPERATION_FLOW_REPORT.md).
+Runbook riêng cho cluster tối giản chỉ có Kafka, Jenkins, Argo CD và PostgreSQL
+nằm tại [`../../AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md`](../../AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md).
 
 ## Cấu trúc
 
@@ -76,7 +78,7 @@ Trivy Operator bỏ qua vulnerability scan riêng cho hai tag node-local này v�
 scan Job không mount containerd socket và registry mirror không chứa image lab;
 CI vẫn scan/SBOM image khi build. `excludeImages` chứa cả tên gốc lẫn tên đã
 normalize qua `mirror.gcr.io`. Mọi image platform có registry vẫn được Trivy
-Operator scan bình thường; bỏ exclusion sau khi GitLab Registry được dùng.
+Operator scan bình thường; bỏ exclusion sau khi GHCR digest được dùng.
 
 ## Cài profile trên từng worker
 
@@ -118,12 +120,18 @@ lần sửa và chỉ chuyển sang control-plane tiếp theo sau khi `/readyz` 
 Audit JSON nằm tại `/var/log/kubernetes/audit/audit.log`, rotate 100 MiB × 10,
 giữ tối đa 30 ngày.
 
-## Jenkins CI và microservice extraction
+## GitHub Actions CI, Jenkins lab và microservice extraction
+
+Pipeline chính là [`.github/workflows/aims-supply-chain.yml`](../../.github/workflows/aims-supply-chain.yml):
+test → build ba artifact hiện có → push GHCR → Trivy → Syft CycloneDX → Cosign
+keyless → SLSA/in-toto attestation → verify → commit digest vào Helm values.
+GitHub OIDC là identity ký; không lưu Cosign private key. Argo CD vẫn là CD
+reconciler duy nhất và workload luôn dùng immutable digest.
 
 Jenkins được cài riêng trong namespace `jenkins`, dùng PVC Longhorn 20GiB,
-controller `0` executor và Kubernetes ephemeral agent. Jenkins chỉ build/test/
-scan/sign rồi cập nhật GitOps bằng immutable image digest; **không** có quyền
-apply vào `production`. Argo CD vẫn là CD reconciler duy nhất:
+controller `0` executor và Kubernetes ephemeral agent. Jenkins được giữ để thực
+hành Kubernetes agent sau, không nằm trên đường phát hành chính và **không** có
+quyền apply vào `production`:
 
 ```bash
 scripts/install-jenkins-ci.sh
@@ -133,8 +141,7 @@ ssh -L 18080:127.0.0.1:18080 dat@10.1.16.234 \
 
 Mở `http://localhost:18080`; password admin chỉ lấy lúc cần đăng nhập từ Secret
 `jenkins/aims-jenkins`, không lưu vào Git. [`../../../Jenkinsfile`](../../../Jenkinsfile)
-là pipeline as code. Bật `PUBLISH_IMAGES=true` chỉ sau khi cấu hình registry,
-Cosign và GitOps credential ngắn hạn trong Jenkins Credentials.
+là pipeline lab, chưa bật publish.
 
 `notification-service` là service đầu tiên đã tách thật: source/image riêng ở
 [`../../../services/notification-service`](../../../services/notification-service),
@@ -162,15 +169,16 @@ Chi tiết URL, credential Secret, MinIO tunnel và danh sách UI chưa cài n�
 [`../../AIMS_OPERATION_FLOW_REPORT.md`](../../AIMS_OPERATION_FLOW_REPORT.md#43-giao-diện-quản-trị-giao-tiếp-giữa-các-component).
 
 Apply Gatekeeper theo thứ tự ConstraintTemplate trước Constraint. Constraint
-runtime hiện dùng `deny`; Kyverno runtime policy cũng Enforce. Cosign/SLSA vẫn
-Audit riêng cho image `prod-sim` chưa ký. Không bật Argo CD `prune` cho đến khi
-repo Git chứa đầy đủ resource đang quản lý.
+runtime hiện dùng `deny`; Kyverno runtime policy cũng Enforce. Policy
+Cosign/SLSA Enforce cho image `ghcr.io/tndat-dev/aims-*`; image node-local cũ
+không thuộc selector này. Không bật Argo CD `prune` cho đến khi repo Git chứa
+đầy đủ resource đang quản lý.
 
 ## Trạng thái mã CI/CD và GitOps
 
-Bộ mã local đã có Dockerfile backend/frontend, Helm chart AIMS, toàn bộ manifest
-platform/CKS, script vận hành và `.gitlab-ci.yml`. Pipeline định nghĩa đủ luồng
-`test → build → scan → attest → verify → gitops`, gồm Trivy, kubesec, Syft SBOM,
+Bộ mã local đã có Dockerfile backend/frontend/notification, Helm chart AIMS,
+toàn bộ manifest platform/CKS và script vận hành. GitHub Actions định nghĩa đủ
+luồng `test → build → scan → attest → verify → gitops`, gồm Trivy, Syft SBOM,
 SLSA provenance, Cosign keyless sign/attest/verify và cập nhật image digest vào
 Helm values. `argocd-application.yaml` trỏ tới repository bàn giao
 `tndat-dev/An-Internet-Media-Store`, có automated sync/prune/self-heal nhưng chỉ
@@ -178,25 +186,22 @@ Helm values. `argocd-application.yaml` trỏ tới repository bàn giao
 tái tạo đúng Argo CD/Argo Rollouts đang chạy; chỉ bật Application khi
 `ENABLE_AIMS_GITOPS=true` và script xác nhận chart đã tồn tại trên Git remote.
 
-Repository bàn giao là GitHub, còn engine CI được yêu cầu là GitLab CI. Để chạy
-end-to-end, import/mirror repository vào GitLab, cấu hình runner/registry/OIDC và
-đặt masked variable `GITOPS_PUSH_URL` là URL xác thực để job GitOps đẩy digest đã
-verify về GitHub; `GITOPS_TARGET_BRANCH` mặc định là nhánh mặc định. Identity và
-registry trong policy cũng phải khớp project thật. Secret, token, password và
-private key không thuộc source code; chúng phải được nạp vào Vault/GitLab masked
-variables.
+Workflow dùng `GITHUB_TOKEN` để push GHCR và commit GitOps, cùng permission
+`id-token: write` cho Fulcio/Rekor. Repository phải cho Actions ghi Contents và
+Packages. GHCR package public không cần pull secret; package private phải cấp
+`imagePullSecret` qua Vault/External Secrets. Secret, token, password và private
+key không thuộc source code.
 
 Trạng thái live 03/08/2026: Argo CD 3.4.5 và Argo Rollouts 1.9.1 đều khỏe; 9/9
 Rollout AIMS `Healthy`. `Application/aims-production` đã đọc chart trên GitHub
 `main`, automated sync/prune/self-heal; cụm chưa cài GitLab Runner. Argo CD UI/API
-được expose NodePort `30081`, Rollouts Dashboard `30100`. GitLab CI có thể dùng
-shared runner bên ngoài; nếu dùng self-managed runner trong cụm thì phải tạo
-runner authentication token/Secret trước, không lưu token trong repository.
+được expose NodePort `30081`, Rollouts Dashboard `30100`. Jenkins vẫn Ready
+nhưng được hoãn làm pipeline theo quyết định hiện tại.
 
 Kiểm tra local sau khi sửa layout pipeline: backend `207 passed`, frontend lint
 và typecheck PASS, YAML pipeline parse PASS, Docker build backend/frontend PASS,
 Helm lint/render PASS. `config/settings.py` giữ environment làm nguồn ưu tiên để
-GitLab `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
+CI `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
 
 ## Nghiệm thu
 
