@@ -30,6 +30,27 @@ spec:
   mtls:
     mode: STRICT
 ---
+# Strimzi authenticates this listener with client TLS. Ambient STRICT would
+# otherwise expect HBONE on the application port and terminate the native Kafka
+# TLS handshake. PERMISSIVE is intentionally limited to 9093; Kafka ACL + mTLS
+# remain mandatory on that listener.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: kafka-native-tls
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: aims-kafka
+      strimzi.io/kind: Kafka
+      strimzi.io/name: aims-kafka-kafka
+  portLevelMtls:
+    "9093":
+      mode: PERMISSIVE
+---
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
