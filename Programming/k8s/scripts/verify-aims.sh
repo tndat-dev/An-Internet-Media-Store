@@ -33,7 +33,7 @@ check "Incomplete cluster controllers" "$(jq '[.items[] | select(if .kind == "Da
 check "Unbound PVCs" "$(kubectl get pvc -A -o json | jq '[.items[] | select(.status.phase != "Bound")] | length')" 0
 
 check "Jenkins namespace PSA Restricted" "$(kubectl get namespace jenkins -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" restricted
-check "Jenkins controller Ready" "$(kubectl -n jenkins get statefulset aims-jenkins -o jsonpath='{.status.readyReplicas}')}" 1
+check "Jenkins controller Ready" "$(kubectl -n jenkins get statefulset aims-jenkins -o jsonpath='{.status.readyReplicas}')" 1
 check "Jenkins PVC Bound" "$(kubectl -n jenkins get pvc aims-jenkins -o jsonpath='{.status.phase}')" Bound
 jenkins_controller_can_create=$(kubectl -n jenkins auth can-i create pods \
   --as=system:serviceaccount:jenkins:aims-jenkins-controller 2>/dev/null || true)
