@@ -183,7 +183,12 @@ jobs:
           output-file: sbom-${{ matrix.component }}.cdx.json
           upload-artifact: false
 
+      # Kyverno 1.18.2 cannot reliably discover Cosign 3 OCI 1.1-only
+      # bundles/attestations on GHCR. Cosign 2.6.4 emits the legacy .sig/.att
+      # attachments Kyverno verifies while retaining keyless Fulcio/Rekor.
       - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v2.6.4
 
       - name: Generate SLSA v1 predicate
         env:
@@ -250,17 +255,35 @@ jobs:
         with:
           ref: main
 
+      - name: Reject stale release promotion
+        id: freshness
+        shell: bash
+        run: |
+          git fetch origin main
+          latest_source=$(git log origin/main --format='%H%x09%s' | \
+            awk -F '\t' '$2 !~ /^deploy: promote signed AIMS images/ {print $1; exit}')
+          if [[ "$latest_source" == "$GITHUB_SHA" ]]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+            echo "Promoting current source revision $GITHUB_SHA"
+          else
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale source revision $GITHUB_SHA; current source is $latest_source"
+          fi
+
       - uses: actions/download-artifact@v4
+        if: steps.freshness.outputs.promote == 'true'
         with:
           pattern: digest-*
           path: .artifacts/digests
           merge-multiple: true
 
       - uses: actions/setup-python@v5
+        if: steps.freshness.outputs.promote == 'true'
         with:
           python-version: "3.12"
 
       - name: Update Helm values with verified digests
+        if: steps.freshness.outputs.promote == 'true'
         run: |
           python -m pip install 'ruamel.yaml==0.18.15'
           python Programming/k8s/scripts/update-gitops-images.py \
@@ -269,6 +292,7 @@ jobs:
             --source-revision "${GITHUB_SHA}"
 
       - name: Commit GitOps revision
+        if: steps.freshness.outputs.promote == 'true'
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com

@@ -1,3 +1,31 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kyverno-ghcr-pull-reader
+  namespace: production
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ghcr-pull"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kyverno-ghcr-pull-reader
+  namespace: production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kyverno-ghcr-pull-reader
+subjects:
+  - kind: ServiceAccount
+    name: kyverno-admission-controller
+    namespace: kyverno
+  - kind: ServiceAccount
+    name: kyverno-background-controller
+    namespace: kyverno
+---
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -15,7 +43,7 @@ spec:
   background: true
   webhookTimeoutSeconds: 30
   rules:
-    - name: verify-gitlab-keyless-image-and-attestations
+    - name: verify-github-keyless-image-and-attestations
       match:
         any:
           - resources:
@@ -27,6 +55,11 @@ spec:
         - imageReferences:
             - "ghcr.io/tndat-dev/aims-*"
           required: true
+          imageRegistryCredentials:
+            # The secret lives in the workload namespace. It is materialized
+            # out-of-band/Vault and is never stored in Git.
+            secrets:
+              - production/ghcr-pull
           # GitOps already supplies immutable digests, so admission verifies
           # without rewriting the Pod image reference.
           mutateDigest: false
