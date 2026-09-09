@@ -151,8 +151,12 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: {{ .name | quote }}
             {{- if .kafkaConsumerTopic }}
-            - name: KAFKA_NOTIFICATION_TOPIC
+            - name: KAFKA_CONSUMER_TOPIC
               value: {{ .kafkaConsumerTopic | quote }}
+            {{- end }}
+            {{- range $name, $value := (.extraEnv | default dict) }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
             {{- end }}
             {{- if .kafkaClusterCaSecret }}
             - name: KAFKA_TLS_CA

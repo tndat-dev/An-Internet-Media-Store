@@ -45,6 +45,10 @@ def main() -> None:
     notification["image"] = load_digest(args.digests, "notification-service")
     notification["sourceRevision"] = args.source_revision
 
+    inventory = services["inventory-service"]
+    inventory["image"] = load_digest(args.digests, "inventory-service")
+    inventory["sourceRevision"] = args.source_revision
+
     with args.values.open("w", encoding="utf-8") as stream:
         yaml.dump(values, stream)
 

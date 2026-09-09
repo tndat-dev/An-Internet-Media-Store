@@ -55,7 +55,17 @@ services:
     image: {}
   - name: inventory-service
     replicas: 2
+    # The workflow replaces this compatibility image with the independently
+    # built GHCR digest only after scan/sign/attestation succeeds.
     image: {}
+    kafkaTlsSecret: aims-services
+    kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+    kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
+    kafkaConsumerTopic: aims.business.order.created.v1
+    extraEnv:
+      KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
+      KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
+      KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
   - name: notification-service
     replicas: 2
     sandbox: true

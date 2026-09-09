@@ -13,4 +13,5 @@ Programming/frontend/tsconfig.tsbuildinfo
 !AIMS_OPERATION_FLOW_REPORT.md
 !AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md
 !Programming/k8s/README.md
+!services/README.md
 !Programming/k8s/cks-lab/README.md

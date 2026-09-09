@@ -66,7 +66,10 @@ class NotificationRuntime:
             logger.warning(self.last_error)
             return
         self.consumer = AIOKafkaConsumer(
-            os.getenv("KAFKA_NOTIFICATION_TOPIC", "aims.business.payment.completed.v1"),
+            os.getenv(
+                "KAFKA_CONSUMER_TOPIC",
+                os.getenv("KAFKA_NOTIFICATION_TOPIC", "aims.business.payment.completed.v1"),
+            ),
             bootstrap_servers=bootstrap,
             group_id=os.getenv("KAFKA_CONSUMER_GROUP", "aims-notification-service.v1"),
             security_protocol="SSL",
