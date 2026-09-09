@@ -118,6 +118,31 @@ lần sửa và chỉ chuyển sang control-plane tiếp theo sau khi `/readyz` 
 Audit JSON nằm tại `/var/log/kubernetes/audit/audit.log`, rotate 100 MiB × 10,
 giữ tối đa 30 ngày.
 
+## Jenkins CI và microservice extraction
+
+Jenkins được cài riêng trong namespace `jenkins`, dùng PVC Longhorn 20GiB,
+controller `0` executor và Kubernetes ephemeral agent. Jenkins chỉ build/test/
+scan/sign rồi cập nhật GitOps bằng immutable image digest; **không** có quyền
+apply vào `production`. Argo CD vẫn là CD reconciler duy nhất:
+
+```bash
+scripts/install-jenkins-ci.sh
+ssh -L 18080:127.0.0.1:18080 dat@10.1.16.234 \
+  'kubectl -n jenkins port-forward --address 127.0.0.1 svc/aims-jenkins 18080:8080'
+```
+
+Mở `http://localhost:18080`; password admin chỉ lấy lúc cần đăng nhập từ Secret
+`jenkins/aims-jenkins`, không lưu vào Git. [`../../../Jenkinsfile`](../../../Jenkinsfile)
+là pipeline as code. Bật `PUBLISH_IMAGES=true` chỉ sau khi cấu hình registry,
+Cosign và GitOps credential ngắn hạn trong Jenkins Credentials.
+
+`notification-service` là service đầu tiên đã tách thật: source/image riêng ở
+[`../../../services/notification-service`](../../../services/notification-service),
+TLS Kafka và consumer group `aims-notification-service.v1`. Contract event
+versioned nằm ở [`../../../contracts/asyncapi/aims-events.yaml`](../../../contracts/asyncapi/aims-events.yaml).
+Các service khác vẫn đang compatibility mode cùng Django image; migration tiếp
+theo là catalog → inventory → order → payment, không được tách bằng copy image.
+
 ## Dashboard quản trị giao tiếp
 
 Hubble UI là giao diện chính để xem flow giữa các component AIMS. Từ workstation:

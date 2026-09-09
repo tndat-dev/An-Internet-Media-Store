@@ -31,6 +31,16 @@ controllers=$(kubectl get deployment,statefulset,daemonset -A -o json)
 check "Incomplete cluster controllers" "$(jq '[.items[] | select(if .kind == "DaemonSet" then ((.status.numberReady // 0) != (.status.desiredNumberScheduled // 0)) else ((.status.readyReplicas // 0) != (.spec.replicas // 0)) end)] | length' <<< "$controllers")" 0
 check "Unbound PVCs" "$(kubectl get pvc -A -o json | jq '[.items[] | select(.status.phase != "Bound")] | length')" 0
 
+check "Jenkins namespace PSA Restricted" "$(kubectl get namespace jenkins -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" restricted
+check "Jenkins controller Ready" "$(kubectl -n jenkins get statefulset aims-jenkins -o jsonpath='{.status.readyReplicas}')}" 1
+check "Jenkins PVC Bound" "$(kubectl -n jenkins get pvc aims-jenkins -o jsonpath='{.status.phase}')" Bound
+jenkins_controller_can_create=$(kubectl -n jenkins auth can-i create pods \
+  --as=system:serviceaccount:jenkins:aims-jenkins-controller 2>/dev/null || true)
+jenkins_controller_can_read_secrets=$(kubectl -n jenkins auth can-i get secrets \
+  --as=system:serviceaccount:jenkins:aims-jenkins-controller 2>/dev/null || true)
+check "Jenkins controller can create agents" "${jenkins_controller_can_create}" yes
+check "Jenkins controller cannot read Secrets" "${jenkins_controller_can_read_secrets}" no
+
 rollouts=$(kubectl -n production get rollouts.argoproj.io -o json)
 check "Healthy AIMS Rollouts" "$(jq '[.items[] | select(.status.phase == "Healthy" and .status.availableReplicas == .spec.replicas)] | length' <<< "$rollouts")" 9
 
@@ -70,7 +80,8 @@ check "Microservice placement max skew <= 1" "$placement_ok" true
 check "CNPG ready instances" "$(kubectl -n production get cluster aims-postgres-cnpg -o jsonpath='{.status.readyInstances}')" 3
 check "Redis replication master" "$(kubectl -n production get redisreplications.redis.redis.opstreelabs.in aims-redis -o jsonpath='{.status.masterNode}')" aims-redis-0
 check "Kafka Ready" "$(kubectl -n production get kafka aims-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" True
-check "Kafka topic CRs Ready" "$(kubectl -n production get kafkatopics.kafka.strimzi.io -l strimzi.io/cluster=aims-kafka -o json | jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length')" 2
+check "Kafka topic CRs Ready" "$(kubectl -n production get kafkatopics.kafka.strimzi.io -l strimzi.io/cluster=aims-kafka -o json | jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length')" 5
+check "Versioned Kafka event topics Ready" "$(kubectl -n production get kafkatopics.kafka.strimzi.io -o json | jq '[.items[] | select(.metadata.name == "aims.business.order.created.v1" or .metadata.name == "aims.business.inventory.reserved.v1" or .metadata.name == "aims.business.payment.completed.v1") | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length')" 3
 kafka_pods=$(kubectl -n production get pods -l strimzi.io/name=aims-kafka-kafka -o json)
 check "Kafka brokers on distinct workers" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true) | .spec.nodeName] | unique | length' <<< "$kafka_pods")" 3
 check "RabbitMQ all replicas" "$(kubectl -n production get rabbitmqcluster aims-rabbitmq -o jsonpath='{.status.conditions[?(@.type=="AllReplicasReady")].status}')" True
@@ -103,6 +114,7 @@ check "Gatekeeper template created" "$(kubectl get constrainttemplate k8srequire
 check "Gatekeeper runtime enforcement" "$(kubectl get k8srequiredruntimehardening production-runtime-hardening -o jsonpath='{.spec.enforcementAction}')" deny
 
 check "Sandbox RuntimeClass pods" "$(jq '[.items[] | select((.metadata.labels["app.kubernetes.io/name"] == "payment-service" or .metadata.labels["app.kubernetes.io/name"] == "notification-service") and .spec.runtimeClassName == "sandbox")] | length' <<< "$pods")" 4
+check "Isolated notification-service image" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "notification-service" and .spec.containers[0].image == "aims-notification-service:dev-sim")] | length' <<< "$pods")" 2
 check "Localhost hardened telemetry pods" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "security-telemetry-service" and .spec.securityContext.seccompProfile.type == "Localhost" and .spec.securityContext.appArmorProfile.type == "Localhost")] | length' <<< "$pods")" 2
 check "Containers dropping ALL capabilities" "$(jq '[.items[].spec.containers[] | select((.securityContext.capabilities.drop // []) | index("ALL"))] | length' <<< "$pods")" 18
 check "Microservice read-only rootfs" "$(jq '[.items[].spec.containers[] | select(.securityContext.readOnlyRootFilesystem == true)] | length' <<< "$pods")" 18

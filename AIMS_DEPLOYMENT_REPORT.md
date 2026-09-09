@@ -1127,6 +1127,34 @@ HTTP/HTTPS đều đạt 6/6 mẫu, và toàn bộ verifier AIMS/CKS exit 0. Ver
 thêm biến `EXPECTED_SOURCE_REVISION` để đối chiếu annotation source trên cả 20
 pod ứng dụng trong những lần audit sau.
 
+### 14.15 Jenkins CI và microservice đầu tiên
+
+Jenkins chart `5.9.56` đã được cài tại namespace `jenkins` với controller
+`2.568.3`, PVC Longhorn 20 GiB, PSA Restricted, `runAsNonRoot`, root filesystem
+read-only và controller `numExecutors: 0`. Build chạy bằng Kubernetes ephemeral
+agent; controller có quyền tạo Pod agent trong namespace `jenkins` nhưng không
+được đọc Secret. Jenkins là CI duy nhất: test/build/scan/SBOM/sign và cập nhật
+GitOps digest. Argo CD tiếp tục là CD duy nhất, nên Jenkins không có quyền
+`kubectl apply` vào namespace `production`.
+
+`notification-service` là microservice đầu tiên được tách khỏi Django monolith:
+source, dependency, Dockerfile và test riêng tại `services/notification-service`;
+hai replica chạy image `aims-notification-service:dev-sim` với RuntimeClass
+`sandbox`. Service mount client certificate/key từ `aims-services` và cluster
+CA từ `aims-kafka-cluster-ca-cert`, kết nối TLS listener `9093`, consumer group
+`aims-notification-service.v1`. Ba topic versioned được Strimzi quản lý:
+`aims.business.order.created.v1`, `aims.business.inventory.reserved.v1` và
+`aims.business.payment.completed.v1`.
+
+Đã kiểm tra end-to-end bằng event `PaymentCompleted`: producer TLS publish vào
+`aims.business.payment.completed.v1`, consumer join group, nhận partition và
+ghi `notification-delivered`. Một `PeerAuthentication` chỉ cho Kafka port 9093
+ở `PERMISSIVE` là cần thiết để native Strimzi TLS đi qua Ambient; ACL Kafka và
+mutual TLS vẫn bắt buộc. Việc này không biến toàn namespace thành PERMISSIVE.
+Các domain order/inventory/payment vẫn chưa tách hoàn toàn vì còn truy vấn ORM
+chéo; chúng phải được migrate qua outbox/event contract, database ownership và
+idempotent consumer theo thứ tự đã ghi trong `services/README.md`.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,
