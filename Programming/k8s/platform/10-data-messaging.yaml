@@ -390,8 +390,23 @@ spec:
           - Write
           - Describe
       - resource:
+          type: topic
+          name: aims.
+          patternType: prefix
+        operations:
+          - Read
+          - Write
+          - Describe
+      - resource:
           type: group
           name: aims-
+          patternType: prefix
+        operations:
+          - Read
+          - Describe
+      - resource:
+          type: group
+          name: aims.
           patternType: prefix
         operations:
           - Read
