@@ -57,7 +57,7 @@ spec:
                     - key: "{{ runDetails.builder.id }}"
                       operator: Equals
                       value: "https://github.com/tndat-dev/An-Internet-Media-Store/.github/workflows/aims-supply-chain.yml@refs/heads/main"
-            - type: https://cyclonedx.org/schema
+            - type: https://cyclonedx.org/bom
               attestors:
                 - count: 1
                   entries:

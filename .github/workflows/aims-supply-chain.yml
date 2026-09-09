@@ -202,7 +202,7 @@ jobs:
           cosign sign "$IMAGE"
           cosign attest --type cyclonedx \
             --predicate "sbom-${COMPONENT}.cdx.json" "$IMAGE"
-          cosign attest --type slsaprovenance \
+          cosign attest --type slsaprovenance1 \
             --predicate "provenance-${COMPONENT}.json" "$IMAGE"
 
       - name: Verify keyless signature and attestations
@@ -213,13 +213,14 @@ jobs:
           ISSUER: https://token.actions.githubusercontent.com
         run: |
           cosign verify --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE" >/dev/null
           cosign verify-attestation --type cyclonedx \
             --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
-          cosign verify-attestation --type slsaprovenance \
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE" >/dev/null
+          cosign verify-attestation --type slsaprovenance1 \
             --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER" "$IMAGE"
+            --certificate-oidc-issuer "$ISSUER" "$IMAGE" >/dev/null
+          echo "Cosign signature, CycloneDX and SLSA v1 attestations verified"
 
       - name: Record digest for GitOps
         env:
