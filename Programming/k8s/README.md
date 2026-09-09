@@ -212,6 +212,7 @@ apply:
 ```bash
 EXPECTED_REVISION=<full-git-sha> \
 EXPECTED_SOURCE_REVISION=<source-build-full-git-sha> \
+EXPECTED_NOTIFICATION_SOURCE_REVISION=<notification-source-full-git-sha> \
   scripts/audit-live-sync.sh
 SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
@@ -224,9 +225,10 @@ kube-bench/runtime detector và không còn controller legacy. Có thể đổi 
 `EXPECTED_CONTROL_PLANES`, `EXPECTED_WORKERS` khi join thêm node.
 
 `EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu image
-node-local. Verifier sẽ yêu cầu đủ 18 backend pod và hai frontend pod mang đúng
-annotation `aims.hust.vn/source-revision`; lần chốt hiện tại dùng source commit
-`78291a9ae9156a2499cad1d9de81f5320eca17cf`.
+node-local. Verifier sẽ yêu cầu 16 pod Django compatibility và hai frontend pod
+mang đúng annotation `aims.hust.vn/source-revision`; `notification-service` có
+revision độc lập qua `EXPECTED_NOTIFICATION_SOURCE_REVISION` (hiện là
+`3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f`).
 
 Nếu external Sentinel validation bật binding
 `sentinel-experiment-resource-lock`, verifier ghi riêng bốn controller đo tải là

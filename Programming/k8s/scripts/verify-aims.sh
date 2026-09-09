@@ -16,6 +16,7 @@ expected_nodes=${EXPECTED_READY_NODES:-6}
 expected_control_planes=${EXPECTED_CONTROL_PLANES:-3}
 expected_workers=${EXPECTED_WORKERS:-3}
 expected_source_revision=${EXPECTED_SOURCE_REVISION:-}
+expected_notification_source_revision=${EXPECTED_NOTIFICATION_SOURCE_REVISION:-}
 
 nodes=$(kubectl get nodes -o json)
 ready_nodes=$(jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length' <<< "$nodes")
@@ -48,8 +49,12 @@ pods=$(kubectl -n production get pods -l aims.hust.vn/workload-group=microservic
 check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" 18
 
 if [[ -n "${expected_source_revision}" ]]; then
-  check "Backend source revision" \
-    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 18
+  check "Compatibility backend source revision" \
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] != "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 16
+fi
+if [[ -n "${expected_notification_source_revision}" ]]; then
+  check "Notification service source revision" \
+    "$(jq --arg revision "${expected_notification_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 2
 fi
 
 frontend=$(kubectl -n production get deployment aims-frontend -o json)
