@@ -14,4 +14,9 @@ Programming/frontend/tsconfig.tsbuildinfo
 !AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md
 !Programming/k8s/README.md
 !services/README.md
+
+# Python build/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
 !Programming/k8s/cks-lab/README.md
