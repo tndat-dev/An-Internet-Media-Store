@@ -127,7 +127,7 @@ spec:
             - name: AIMS_SERVICE_NAME
               value: {{ .name | quote }}
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: {{ $.Values.integrations.kafkaBootstrap | quote }}
+              value: {{ (.kafkaBootstrap | default $.Values.integrations.kafkaBootstrap) | quote }}
             - name: KAFKA_BUSINESS_TOPIC
               value: {{ $.Values.integrations.kafkaBusinessTopic | quote }}
             - name: KAFKA_SECURITY_TOPIC
