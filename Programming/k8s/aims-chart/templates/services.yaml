@@ -99,6 +99,8 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
+          nodeAffinityPolicy: Honor
+          nodeTaintsPolicy: Honor
           # Enforce global placement across all AIMS microservice replicas.
           # With three workers and maxSurge, a valid domain always exists;
           # DoNotSchedule prevents long-lived 8/5/5 drift after rollouts.
@@ -107,6 +109,12 @@ spec:
             matchLabels:
               aims.hust.vn/workload-group: microservices
       affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
