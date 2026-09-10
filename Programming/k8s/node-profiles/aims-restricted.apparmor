@@ -39,6 +39,13 @@ profile aims-restricted flags=(attach_disconnected,mediate_deleted) {
   /var/run/aims-kafka/** r,
   /var/run/aims-kafka-ca/ r,
   /var/run/aims-kafka-ca/** r,
+  # /var/run resolves to /run in the container mount namespace.
+  /run/aims-kafka/ r,
+  /run/aims-kafka/** r,
+  /run/aims-kafka-ca/ r,
+  /run/aims-kafka-ca/** r,
+  /dev/shm/ rw,
+  /dev/shm/sem.* rw,
   /dev/null rw,
   /dev/urandom r,
   /etc/** r,
