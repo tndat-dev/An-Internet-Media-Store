@@ -145,6 +145,9 @@ jobs:
           tags: |
             ${{ steps.image.outputs.repository }}:${{ github.sha }}
             ${{ steps.image.outputs.repository }}:main
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
@@ -180,8 +183,40 @@ jobs:
         with:
           image: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
-          output-file: sbom-${{ matrix.component }}.cdx.json
+          output-file: sbom-${{ matrix.component }}.full.cdx.json
           upload-artifact: false
+
+      - name: Prepare admission-sized CycloneDX attestation
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          # Keep the complete Syft document as a CI artifact. The signed
+          # admission predicate keeps identity, hashes and PURLs but removes
+          # verbose evidence metadata so Kyverno stays below its 2 MiB context.
+          jq -cS '{
+            bomFormat,
+            specVersion,
+            serialNumber,
+            version,
+            metadata: {
+              timestamp: .metadata.timestamp,
+              component: .metadata.component
+            },
+            components: [
+              .components[]? |
+              {
+                type,
+                name,
+                version,
+                purl,
+                "bom-ref": ."bom-ref",
+                hashes
+              } |
+              with_entries(select(.value != null))
+            ]
+          }' "sbom-${COMPONENT}.full.cdx.json" \
+            > "sbom-${COMPONENT}.cdx.json"
+          test "$(wc -c < "sbom-${COMPONENT}.cdx.json")" -lt 1900000
 
       # Kyverno 1.18.2 cannot reliably discover Cosign 3 OCI 1.1-only
       # bundles/attestations on GHCR. Cosign 2.6.4 emits the legacy .sig/.att
@@ -199,6 +234,17 @@ jobs:
           Programming/k8s/scripts/generate-slsa-provenance.sh \
             "$AIMS_COMPONENT" "$AIMS_IMAGE" "$AIMS_SBOM" \
             "provenance-${AIMS_COMPONENT}.json"
+
+      - name: Retain full and admission SBOMs with provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: supply-chain-${{ matrix.component }}
+          path: |
+            sbom-${{ matrix.component }}.full.cdx.json
+            sbom-${{ matrix.component }}.cdx.json
+            provenance-${{ matrix.component }}.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Keyless sign and attach in-toto attestations
         env:
