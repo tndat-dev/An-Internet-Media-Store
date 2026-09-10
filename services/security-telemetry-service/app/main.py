@@ -86,7 +86,7 @@ class Runtime:
             self.database_ready = True
         bootstrap, tls = os.getenv("KAFKA_BOOTSTRAP_SERVERS", ""), kafka_tls()
         if bootstrap and tls:
-            self.consumer = AIOKafkaConsumer(os.getenv("KAFKA_CONSUMER_TOPIC", os.getenv("KAFKA_SECURITY_TOPIC", "aims-security-events")), bootstrap_servers=bootstrap, group_id="aims.security-telemetry-service.v1", security_protocol="SSL", ssl_context=tls, enable_auto_commit=False, value_deserializer=lambda value: json.loads(value.decode()))
+            self.consumer = AIOKafkaConsumer(os.getenv("KAFKA_CONSUMER_TOPIC", os.getenv("KAFKA_SECURITY_TOPIC", "aims-security-telemetry")), bootstrap_servers=bootstrap, group_id="aims.security-telemetry-service.v1", security_protocol="SSL", ssl_context=tls, enable_auto_commit=False, value_deserializer=lambda value: json.loads(value.decode()))
             await self.consumer.start(); self.kafka_ready = True; self.task = asyncio.create_task(self.consume())
 
     async def stop(self) -> None:

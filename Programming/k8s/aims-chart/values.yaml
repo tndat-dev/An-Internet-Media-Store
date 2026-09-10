@@ -122,7 +122,7 @@ services:
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
-  kafkaConsumerTopic: aims-security-events
+  kafkaConsumerTopic: aims-security-telemetry
 
   sourceRevision: 35695ab603cf84fd97b77cf57096f5f2a8330ac2
 integrations:
