@@ -99,10 +99,10 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          # Canary maxSurge temporarily adds a third pod for a service. Keep
-          # this a strong scheduler preference so concurrent Rollouts cannot
-          # deadlock while old replicas are still counted.
-          whenUnsatisfiable: ScheduleAnyway
+          # Enforce global placement across all AIMS microservice replicas.
+          # With three workers and maxSurge, a valid domain always exists;
+          # DoNotSchedule prevents long-lived 8/5/5 drift after rollouts.
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               aims.hust.vn/workload-group: microservices
