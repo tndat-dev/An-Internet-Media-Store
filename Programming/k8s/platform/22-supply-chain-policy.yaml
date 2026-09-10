@@ -101,6 +101,6 @@ spec:
                           url: https://rekor.sigstore.dev
               conditions:
                 - all:
-                    - key: "{{ Data.bomFormat }}"
+                    - key: "{{ bomFormat }}"
                       operator: Equals
                       value: CycloneDX

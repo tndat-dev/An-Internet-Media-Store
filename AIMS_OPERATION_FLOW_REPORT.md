@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 09/09/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 10/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
