@@ -41,13 +41,22 @@ def main() -> None:
     values["frontend"]["nodeSelector"] = {}
 
     services = {item["name"]: item for item in values["services"]}
-    notification = services["notification-service"]
-    notification["image"] = load_digest(args.digests, "notification-service")
-    notification["sourceRevision"] = args.source_revision
-
-    inventory = services["inventory-service"]
-    inventory["image"] = load_digest(args.digests, "inventory-service")
-    inventory["sourceRevision"] = args.source_revision
+    independent_services = (
+        "api-gateway",
+        "auth-service",
+        "catalog-service",
+        "cart-service",
+        "order-service",
+        "payment-service",
+        "inventory-service",
+        "notification-service",
+        "search-recommendation-service",
+        "security-telemetry-service",
+    )
+    for name in independent_services:
+        service = services[name]
+        service["image"] = load_digest(args.digests, name)
+        service["sourceRevision"] = args.source_revision
 
     with args.values.open("w", encoding="utf-8") as stream:
         yaml.dump(values, stream)

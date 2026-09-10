@@ -1,0 +1,1 @@
+"""AIMS cart bounded context."""

@@ -44,14 +44,14 @@ check "Jenkins controller can create agents" "${jenkins_controller_can_create}" 
 check "Jenkins controller cannot read Secrets" "${jenkins_controller_can_read_secrets}" no
 
 rollouts=$(kubectl -n production get rollouts.argoproj.io -o json)
-check "Healthy AIMS Rollouts" "$(jq '[.items[] | select(.status.phase == "Healthy" and .status.availableReplicas == .spec.replicas)] | length' <<< "$rollouts")" 9
+check "Healthy AIMS Rollouts" "$(jq '[.items[] | select(.status.phase == "Healthy" and .status.availableReplicas == .spec.replicas)] | length' <<< "$rollouts")" 10
 
 pods=$(kubectl -n production get pods -l aims.hust.vn/workload-group=microservices -o json)
-check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" 18
+check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" 20
 
 if [[ -n "${expected_source_revision}" ]]; then
-  check "Compatibility backend source revision" \
-    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] != "notification-service" and .metadata.labels["app.kubernetes.io/name"] != "inventory-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 14
+  check "Independent services source revision" \
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 20
 fi
 if [[ -n "${expected_notification_source_revision}" ]]; then
   check "Notification service source revision" \
@@ -124,11 +124,11 @@ check "Gatekeeper template created" "$(kubectl get constrainttemplate k8srequire
 check "Gatekeeper runtime enforcement" "$(kubectl get k8srequiredruntimehardening production-runtime-hardening -o jsonpath='{.spec.enforcementAction}')" deny
 
 check "Sandbox RuntimeClass pods" "$(jq '[.items[] | select((.metadata.labels["app.kubernetes.io/name"] == "payment-service" or .metadata.labels["app.kubernetes.io/name"] == "notification-service") and .spec.runtimeClassName == "sandbox")] | length' <<< "$pods")" 4
-check "Isolated notification-service image" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "notification-service" and (.spec.containers[0].image | test("(^aims-notification-service:dev-sim$|^ghcr.io/tndat-dev/aims-notification-service@sha256:)")))] | length' <<< "$pods")" 2
-check "Isolated inventory-service image" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "inventory-service" and (.spec.containers[0].image | test("(^aims-inventory-service:dev-sim$|^ghcr.io/tndat-dev/aims-inventory-service@sha256:)")))] | length' <<< "$pods")" 2
+check "Independent signed service images" "$(jq '[.items[] | select(.spec.containers[0].image | test("^ghcr.io/tndat-dev/aims-(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)@sha256:"))] | length' <<< "$pods")" 20
+check "Distinct microservice image repositories" "$(jq '[.items[].spec.containers[0].image | split("@")[0]] | unique | length' <<< "$pods")" 10
 check "Localhost hardened telemetry pods" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "security-telemetry-service" and .spec.securityContext.seccompProfile.type == "Localhost" and .spec.securityContext.appArmorProfile.type == "Localhost")] | length' <<< "$pods")" 2
-check "Containers dropping ALL capabilities" "$(jq '[.items[].spec.containers[] | select((.securityContext.capabilities.drop // []) | index("ALL"))] | length' <<< "$pods")" 18
-check "Microservice read-only rootfs" "$(jq '[.items[].spec.containers[] | select(.securityContext.readOnlyRootFilesystem == true)] | length' <<< "$pods")" 18
+check "Containers dropping ALL capabilities" "$(jq '[.items[].spec.containers[] | select((.securityContext.capabilities.drop // []) | index("ALL"))] | length' <<< "$pods")" 20
+check "Microservice read-only rootfs" "$(jq '[.items[].spec.containers[] | select(.securityContext.readOnlyRootFilesystem == true)] | length' <<< "$pods")" 20
 
 check "Gateway API ingress Programmed" "$(kubectl -n istio-ingress get gateway aims-ingress -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}')" True
 check "Ambient waypoint Programmed" "$(kubectl -n production get gateway aims-waypoint -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}')" True

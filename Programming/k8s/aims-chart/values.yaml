@@ -45,14 +45,19 @@ services:
 - name: order-service
   replicas: 2
   image: {}
+  kafkaTlsSecret: aims-services
+  kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
 - name: payment-service
   replicas: 2
   sandbox: true
   image: {}
+  kafkaTlsSecret: aims-services
+  kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
+  kafkaConsumerTopic: aims.business.inventory.reserved.v1
 - name: inventory-service
   replicas: 2
-    # The workflow replaces this compatibility image with the independently
-    # built GHCR digest only after scan/sign/attestation succeeds.
   image:
     repository: ghcr.io/tndat-dev/aims-inventory-service
     tag: sha256:303784156a076c55ada03b6a06ed9d5bbb55691b04d3c4f087fd52851fdae8e8
@@ -78,10 +83,17 @@ services:
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
   kafkaConsumerTopic: aims.business.payment.completed.v1
+- name: search-recommendation-service
+  replicas: 2
+  image: {}
 - name: security-telemetry-service
   replicas: 2
   localhostProfiles: true
   image: {}
+  kafkaTlsSecret: aims-services
+  kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
+  kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
+  kafkaConsumerTopic: aims-security-events
 
 integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092

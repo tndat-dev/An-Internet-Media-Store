@@ -1,0 +1,1 @@
+"""AIMS payment bounded context."""

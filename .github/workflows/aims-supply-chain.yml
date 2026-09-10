@@ -55,8 +55,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             Programming/backend/requirements.txt
-            services/notification-service/requirements-dev.txt
-            services/inventory-service/requirements-dev.txt
+            services/*/requirements-dev.txt
 
       - name: Test Django backend
         run: |
@@ -64,17 +63,15 @@ jobs:
           cd Programming/backend
           pytest -q
 
-      - name: Test notification service
+      - name: Test all independent microservices
         run: |
-          python -m pip install -r services/notification-service/requirements-dev.txt
-          cd services/notification-service
-          PYTHONPATH=. python -m pytest -q
-
-      - name: Test inventory service
-        run: |
-          python -m pip install -r services/inventory-service/requirements-dev.txt
-          cd services/inventory-service
-          PYTHONPATH=. python -m pytest -q
+          for service in \
+            api-gateway auth-service catalog-service cart-service \
+            order-service payment-service inventory-service notification-service \
+            search-recommendation-service security-telemetry-service; do
+            python -m pip install -r "services/${service}/requirements-dev.txt"
+            (cd "services/${service}" && PYTHONPATH=. python -m pytest -q)
+          done
 
       - uses: actions/setup-node@v4
         with:
@@ -114,6 +111,38 @@ jobs:
             image: aims-inventory-service
             context: services/inventory-service
             dockerfile: services/inventory-service/Dockerfile
+          - component: api-gateway
+            image: aims-api-gateway
+            context: services/api-gateway
+            dockerfile: services/api-gateway/Dockerfile
+          - component: auth-service
+            image: aims-auth-service
+            context: services/auth-service
+            dockerfile: services/auth-service/Dockerfile
+          - component: catalog-service
+            image: aims-catalog-service
+            context: services/catalog-service
+            dockerfile: services/catalog-service/Dockerfile
+          - component: cart-service
+            image: aims-cart-service
+            context: services/cart-service
+            dockerfile: services/cart-service/Dockerfile
+          - component: order-service
+            image: aims-order-service
+            context: services/order-service
+            dockerfile: services/order-service/Dockerfile
+          - component: payment-service
+            image: aims-payment-service
+            context: services/payment-service
+            dockerfile: services/payment-service/Dockerfile
+          - component: search-recommendation-service
+            image: aims-search-recommendation-service
+            context: services/search-recommendation-service
+            dockerfile: services/search-recommendation-service/Dockerfile
+          - component: security-telemetry-service
+            image: aims-security-telemetry-service
+            context: services/security-telemetry-service
+            dockerfile: services/security-telemetry-service/Dockerfile
     steps:
       - uses: actions/checkout@v4
 

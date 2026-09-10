@@ -124,39 +124,6 @@ spec:
       sectionName: https
   rules:
     - matches:
-        - path: {type: PathPrefix, value: /api/auth/}
-        - path: {type: PathPrefix, value: /api/admin/}
-      backendRefs:
-        - {group: "", kind: Service, name: auth-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/products/}
-      backendRefs:
-        - {group: "", kind: Service, name: catalog-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/cart/}
-      backendRefs:
-        - {group: "", kind: Service, name: cart-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/orders/}
-      backendRefs:
-        - {group: "", kind: Service, name: order-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/payments/}
-      backendRefs:
-        - {group: "", kind: Service, name: payment-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/inventory/}
-      backendRefs:
-        - {group: "", kind: Service, name: inventory-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/notifications/}
-      backendRefs:
-        - {group: "", kind: Service, name: notification-service, port: 8000, weight: 1}
-    - matches:
-        - path: {type: PathPrefix, value: /api/security/}
-      backendRefs:
-        - {group: "", kind: Service, name: security-telemetry-service, port: 8000, weight: 1}
-    - matches:
         - path: {type: PathPrefix, value: /api/}
       backendRefs:
         - {group: "", kind: Service, name: api-gateway, port: 8000, weight: 1}

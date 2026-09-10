@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS inventory_service.outbox_events (
 );
 CREATE INDEX IF NOT EXISTS inventory_outbox_unpublished
   ON inventory_service.outbox_events (id) WHERE published_at IS NULL;
+DO $$
+BEGIN
+  IF to_regclass('public.products_product') IS NOT NULL THEN
+    INSERT INTO inventory_service.stock(product_id,available)
+    SELECT product_id::text,stock_quantity FROM public.products_product
+    ON CONFLICT(product_id) DO NOTHING;
+  END IF;
+END $$;
 """
 
 
@@ -98,6 +106,7 @@ class InventoryRuntime:
             logger.warning("Database disabled: INVENTORY_DATABASE_URL is not configured")
             return
         async with await psycopg.AsyncConnection.connect(self.database_url) as connection:
+            await connection.execute("SELECT pg_advisory_xact_lock(hashtext('aims-inventory-schema-v1'))")
             await connection.execute(SCHEMA_SQL)
         self.database_ready = True
 
@@ -217,6 +226,8 @@ class InventoryRuntime:
                         "reservationId": str(uuid.uuid4()),
                         "status": "RESERVED" if sufficient else "REJECTED",
                         "items": [item.model_dump() for item in items],
+                        "totalAmount": str(event.payload.get("totalAmount", "0")),
+                        "currency": str(event.payload.get("currency", "VND")),
                     },
                 }
                 await connection.execute(

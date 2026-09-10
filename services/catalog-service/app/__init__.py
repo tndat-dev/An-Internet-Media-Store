@@ -1,0 +1,1 @@
+"""AIMS catalog bounded context."""

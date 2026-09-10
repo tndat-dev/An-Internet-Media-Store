@@ -69,9 +69,9 @@ if [[ -n "${EXPECTED_REVISION}" ]]; then
 fi
 
 check "AIMS Rollouts available replicas" \
-  "$(kubectl -n "${NAMESPACE}" get rollouts.argoproj.io -l app.kubernetes.io/part-of=aims -o json | jq '[.items[] | select(.spec.replicas == .status.availableReplicas)] | length')" 9
+  "$(kubectl -n "${NAMESPACE}" get rollouts.argoproj.io -l app.kubernetes.io/part-of=aims -o json | jq '[.items[] | select(.spec.replicas == .status.availableReplicas)] | length')" 10
 check "AIMS ready microservice pods" \
-  "$(kubectl -n "${NAMESPACE}" get pods -l aims.hust.vn/workload-group=microservices -o json | jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and any(.status.containerStatuses[]?; .ready == true))] | length')" 18
+  "$(kubectl -n "${NAMESPACE}" get pods -l aims.hust.vn/workload-group=microservices -o json | jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.phase == "Running" and any(.status.containerStatuses[]?; .ready == true))] | length')" 20
 check "CloudNativePG ready instances" \
   "$(kubectl -n "${NAMESPACE}" get cluster.postgresql.cnpg.io aims-postgres-cnpg -o jsonpath='{.status.readyInstances}')" 3
 check "Kafka Ready" \
