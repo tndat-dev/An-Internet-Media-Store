@@ -30,3 +30,8 @@ customer lifecycle to Keycloak, the search path falls back to Catalog until
 OpenSearch indexing is added, and the notification provider is a lab sink.
 Those limitations do not couple service images or deployment lifecycles back
 to Django.
+
+All production AIMS pods use the regular containerd runtime because Istio
+Ambient/Cilium node interception must see their network namespace. The separate
+`cks-lab/gvisor-runtime-smoke` workload proves the `runsc` RuntimeClass without
+silently breaking service-to-service mTLS.

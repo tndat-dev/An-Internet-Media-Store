@@ -123,7 +123,7 @@ check "Gatekeeper audit ready" "$(kubectl -n gatekeeper-system get deploy gateke
 check "Gatekeeper template created" "$(kubectl get constrainttemplate k8srequiredruntimehardening -o jsonpath='{.status.created}')" true
 check "Gatekeeper runtime enforcement" "$(kubectl get k8srequiredruntimehardening production-runtime-hardening -o jsonpath='{.spec.enforcementAction}')" deny
 
-check "Sandbox RuntimeClass pods" "$(jq '[.items[] | select((.metadata.labels["app.kubernetes.io/name"] == "payment-service" or .metadata.labels["app.kubernetes.io/name"] == "notification-service") and .spec.runtimeClassName == "sandbox")] | length' <<< "$pods")" 4
+check "Ambient-compatible microservice runtime" "$(jq '[.items[] | select(.spec.runtimeClassName == null)] | length' <<< "$pods")" 20
 check "Independent signed service images" "$(jq '[.items[] | select(.spec.containers[0].image | test("^ghcr.io/tndat-dev/aims-(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)@sha256:"))] | length' <<< "$pods")" 20
 check "Distinct microservice image repositories" "$(jq '[.items[].spec.containers[0].image | split("@")[0]] | unique | length' <<< "$pods")" 10
 check "Localhost hardened telemetry pods" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "security-telemetry-service" and .spec.securityContext.seccompProfile.type == "Localhost" and .spec.securityContext.appArmorProfile.type == "Localhost")] | length' <<< "$pods")" 2

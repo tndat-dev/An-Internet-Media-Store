@@ -70,7 +70,6 @@ services:
   sourceRevision: 35695ab603cf84fd97b77cf57096f5f2a8330ac2
 - name: payment-service
   replicas: 2
-  sandbox: true
   image:
     repository: ghcr.io/tndat-dev/aims-payment-service
     tag: sha256:c16bbf1ec7601dbcce3bc53e9dc4d60ecc11e0937ab8c318de90803d6e4576d6
@@ -97,7 +96,6 @@ services:
   sourceRevision: 35695ab603cf84fd97b77cf57096f5f2a8330ac2
 - name: notification-service
   replicas: 2
-  sandbox: true
   image:
     repository: ghcr.io/tndat-dev/aims-notification-service
     tag: sha256:61e924500cf4b6c9d6d1a432a80ccdadd97f7734f0d60d5bfb77fd1f5f45bc5d

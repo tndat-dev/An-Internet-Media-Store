@@ -21,6 +21,13 @@ Verifier bao phủ sáu domain CKS hiện hành:
 5. Supply chain: Trivy, kubesec, Syft SBOM, Cosign/SLSA và Kyverno verifyImages.
 6. Monitoring/runtime: Tetragon, Falco, audit log, Hubble và report Trivy.
 
+`gvisor-runtime-smoke` là workload cô lập dùng `RuntimeClass/sandbox` để chứng
+minh handler `runsc` hoạt động. Không chạy AIMS Ambient pod bằng gVisor trong lab
+này: Cilium/Istio node-level redirection không đi vào network stack của sandbox,
+làm kết nối mTLS bị reset. AIMS microservices dùng runc + seccomp/AppArmor;
+gVisor được giữ trong namespace CKS tách biệt để bài thực hành vẫn kiểm chứng
+runtime sandbox thực, không đánh đổi tính đúng của service mesh.
+
 ## Bài tập nhanh
 
 Kiểm tra RBAC của tài khoản lab:

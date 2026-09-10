@@ -28,6 +28,8 @@ check "Cilium L3-L7 policy valid" \
   "$(kubectl -n production get ciliumnetworkpolicy aims-zero-trust -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}')" True
 check "gVisor RuntimeClass" \
   "$(kubectl get runtimeclass sandbox -o jsonpath='{.handler}')" runsc
+check "gVisor sandbox smoke workload" \
+  "$(kubectl -n cks-lab get deployment gvisor-runtime-smoke -o jsonpath='{.status.readyReplicas}')" 1
 check "Kyverno runtime Enforce" \
   "$(kubectl get clusterpolicy production-runtime-hardening -o jsonpath='{.spec.validationFailureAction}')" Enforce
 check "Gatekeeper runtime deny" \
