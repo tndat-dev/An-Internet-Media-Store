@@ -73,7 +73,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
-    participant GL as GitLab CI
+    participant CI as GitHub Actions
     participant Git as Git repository
     participant Argo as Argo CD
     participant Roll as Argo Rollouts
@@ -82,8 +82,8 @@ sequenceDiagram
     participant Mesh as Cilium/Istio Ambient
 
     Dev->>Git: push source + manifest
-    GL->>GL: test, build, scan, SBOM, provenance, sign
-    GL->>Git: cập nhật image digest đã verify [skip ci]
+    CI->>CI: test, build, scan, SBOM, provenance, sign
+    CI->>Git: cập nhật image digest đã verify [skip ci]
     Argo->>Git: poll/webhook revision main
     Argo->>K8s: server-side reconcile Helm desired state
     K8s->>Adm: admission và policy validation
@@ -368,16 +368,17 @@ flowchart LR
     KYV --> RUN[Argo Rollouts canary]
 ```
 
-Pipeline root include `Programming/.gitlab-ci.yml` và thực hiện
-`test → build → scan → attest → verify → gitops`. SBOM CycloneDX được đính kèm
-thành attestation; provenance dùng predicate SLSA v1 tương thích in-toto. Cosign
-keyless ràng buộc certificate với GitLab OIDC identity và ghi transparency log
-Rekor. Kyverno nối verify signature/provenance/SBOM tại admission.
+Workflow `.github/workflows/aims-supply-chain.yml` thực hiện
+`test → build → scan → SBOM/provenance → sign/attest → verify → GitOps` cho bốn
+image. SBOM CycloneDX và SLSA provenance v1 được ký thành in-toto attestation;
+Cosign keyless ràng buộc certificate với GitHub Actions OIDC identity và ghi
+Rekor. Bản Syft đầy đủ được giữ làm CI artifact, còn predicate CycloneDX rút gọn
+giữ component/hash/PURL để không vượt giới hạn context 2 MiB của Kyverno.
 
-Trong lab, image `prod-sim` là node-local và chưa có registry digest/signature,
-nên policy supply-chain còn Audit. Sau lần pipeline registry thật đầu tiên phải
-điền đúng registry/identity, verify thành công rồi mới chuyển Enforce; các policy
-runtime khác và PSA Restricted hiện đã Enforce/deny.
+Image chạy từ GHCR private bằng digest bất biến. Kyverno admission có RBAC chỉ
+được `get` Secret `production/ghcr-pull`, xác minh signature, SLSA và SBOM ở
+`Enforce`; `mutateDigest=false` vì GitOps đã pin digest. Cosign 2.6.x tạo legacy
+attachments tương thích Kyverno 1.18.2 nhưng vẫn dùng Fulcio/Rekor keyless.
 
 ### 8.1 Jenkins CI, Argo CD và service extraction
 
@@ -397,6 +398,14 @@ Nó có image/source/test riêng, chạy gVisor và consume
 chỉ mở `PeerAuthentication PERMISSIVE` tại port này, còn Strimzi client TLS và
 Kafka ACL vẫn bắt buộc. Event smoke `PaymentCompleted` đã được producer publish
 và consumer xử lý thành công.
+
+`inventory-service` là lát cắt độc lập thứ hai: FastAPI + schema PostgreSQL
+`inventory_service`, Kafka group `aims.inventory-service.v1`, manual offset
+commit, bảng idempotency và transactional outbox. `OrderCreated` dẫn tới
+`InventoryReserved` hoặc `InventoryRejected`. Smoke test live chứng minh một
+event trừ tồn kho đúng một lần và duplicate cùng `eventId` không tạo side effect
+lặp. Bảy Rollout còn lại vẫn là compatibility workload của Django; search &
+recommendation là service đích thứ 10 nhưng chưa chạy live.
 
 ## 9. Luồng backup và phục hồi
 
@@ -449,7 +458,7 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
 | Argo CD | `Synced/Healthy`, GitOps revision được audit trước mỗi lần nghiệm thu |
-| Source runtime | 16 Django compatibility pod + 2 notification pod source riêng + 2 frontend |
+| Source runtime | 14 Django compatibility pod + 2 notification + 2 inventory độc lập + 2 frontend |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 
@@ -474,12 +483,10 @@ rsync -a --delete \
   dat@10.1.16.234:/home/dat/aims-deploy-20260729/
 ```
 
-Với tag lab `prod-sim`, manifest Git không đủ để chứng minh binary mới: phải
-build backend/frontend từ source sạch, chạy test, import cùng archive image vào
-containerd namespace `k8s.io` trên cả ba worker, rồi đổi `sourceRevision` trong
-Helm values để Argo tạo revision pod mới. Lần này source commit là
-`78291a9ae9156a2499cad1d9de81f5320eca17cf`; image config backend/frontend đang
-chạy lần lượt là `sha256:6dc61c529edf…` và `sha256:9969c09b8b35…`.
+Release hiện tại không còn phụ thuộc tag node-local `prod-sim`. GitHub Actions
+build từ source sạch, quét/ký/attest image, ghi immutable GHCR digest và
+`sourceRevision` vào Helm values; Argo CD tạo revision pod mới từ commit GitOps.
+Do đó manifest, digest và source revision có thể đối chiếu trực tiếp trong audit.
 
 Trong lần bàn giao này, checksum được đối chiếu cho toàn bộ manifest/script sau
 khi copy. Báo cáo, source ứng dụng và pipeline nằm trong clone Git đầy đủ;

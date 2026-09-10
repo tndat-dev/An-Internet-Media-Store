@@ -3,7 +3,7 @@
 **Đơn vị học phần:** HUST – ISD.20252-18  
 **Dự án:** AIMS (An Internet Media Store)  
 **Môi trường:** `production` trên cụm kubeadm on-premise  
-**Ngày cập nhật gần nhất:** 09/09/2026 (UTC+7)
+**Ngày cập nhật gần nhất:** 10/09/2026 (UTC+7)
 
 **Repository làm việc:** `/home/tndat/An-Internet-Media-Store`
 
@@ -23,8 +23,8 @@ Kafka KRaft, RabbitMQ, MinIO và OpenSearch đều được operator quản lý.
 
 Các lớp bảo mật chính đã được triển khai gồm Cilium NetworkPolicy, Istio
 Ambient mTLS STRICT, Kyverno, Gatekeeper, seccomp, AppArmor, gVisor RuntimeClass,
-Tetragon, Falco, Trivy Operator, Vault và External Secrets. Chuỗi cung ứng được
-mô tả bằng GitLab CI với Trivy, Syft và Cosign keyless; GitOps dùng Argo CD và
+Tetragon, Falco, Trivy Operator, Vault và External Secrets. Chuỗi cung ứng chạy
+thật bằng GitHub Actions với Trivy, Syft và Cosign keyless; GitOps dùng Argo CD và
 progressive delivery dùng Argo Rollouts. Backup Velero chạy hằng ngày vào bucket
 MinIO. Backup phục hồi cuối phiên `production-recovery-20260801-042048` đã hoàn
 tất 1.360/1.360 item, 0 error và 8 warning; BackupStorageLocation ở trạng thái
@@ -222,7 +222,7 @@ Gatekeeper dùng Rego, phù hợp học CKS và các rule logic tổng quát. Co
 - Trivy quét CVE, misconfiguration và secret.
 - kubesec chấm manifest Pod đã render từ Helm và chặn security score âm.
 - Syft tạo SBOM CycloneDX để biết chính xác thành phần trong image.
-- Cosign keyless dùng OIDC identity của GitLab CI để ký image/attestation, không
+- Cosign keyless dùng OIDC identity của GitHub Actions để ký image/attestation, không
   lưu private key dài hạn.
 - Rekor transparency log lưu bằng chứng chữ ký theo kiểu append-only.
 - SLSA provenance v1 ghi build type, source commit, builder, pipeline run và
@@ -230,22 +230,26 @@ Gatekeeper dùng Rego, phù hợp học CKS và các rule logic tổng quát. Co
 
 Pipeline chỉ promote image nếu test, build, Trivy/kubesec, SBOM, sign, hai
 attestation và tự verify đều thành công. `ClusterPolicy/
-aims-verify-signed-slsa-images` nối Cosign với admission Kyverno: chỉ identity
-GitLab đúng project mới hợp lệ, image bắt buộc tham chiếu digest, đồng thời phải
-có SLSA v1 và CycloneDX attestation. Policy dùng `Audit` trong giai đoạn image
-lab local với `mutateDigest=false`, `verifyDigest=true`; sau lần promote registry
-đầu tiên thành công thì chuyển `Enforce` và bật `mutateDigest=true`.
+aims-verify-signed-slsa-images` nối Cosign với admission Kyverno: chỉ GitHub
+Actions identity đúng repository/workflow mới hợp lệ, image bắt buộc tham chiếu
+digest, đồng thời phải có SLSA v1 và CycloneDX attestation. Image đặt trong GHCR
+private; Kyverno dùng quyền RBAC `get` giới hạn đúng Secret `production/ghcr-pull`.
+Policy chạy `Enforce`, `mutateDigest=false`, `verifyDigest=true` vì GitOps đã
+promote immutable digest. Cosign được pin nhánh 2.6 đã vá bảo mật để tạo attachment
+`.sig/.att` tương thích Kyverno 1.18.2; CI vẫn giữ SBOM Syft đầy đủ làm artifact
+và ký thêm CycloneDX rút gọn dưới giới hạn context 2 MiB của admission.
 
 Theo SLSA v1.2, provenance tồn tại đáp ứng hướng Build L1. Không tuyên bố Build
 L2/L3 chỉ vì predicate đã ký: L2 còn yêu cầu provenance do control plane của
 hosted build platform sinh độc lập với tenant; L3 cần hardened build platform.
 
-### 3.12 GitLab CI, Argo CD và Argo Rollouts
+### 3.12 GitHub Actions, Jenkins, Argo CD và Argo Rollouts
 
-GitLab CI làm CI: test, build, scan, SBOM, ký và cập nhật Git. Argo CD làm CD:
-pull desired state từ Git, self-heal và prune. Mô hình pull tránh cấp credential
-cluster cho runner. Argo Rollouts thay Deployment để chia traffic theo bước
-20% → 50% → 100%, có pause 30 giây và `maxUnavailable=0`.
+GitHub Actions là CI phát hành chính: test, build, scan, SBOM, ký, attest và cập
+nhật GitOps digest; Jenkins được giữ làm controller lab/CI thay thế. Argo CD là
+CD duy nhất: pull desired state từ Git, self-heal và prune. Mô hình pull tránh
+cấp credential cluster cho runner. Argo Rollouts thay Deployment để chia traffic
+theo bước 20% → 50% → 100%, có pause 30 giây và `maxUnavailable=0`.
 
 ### 3.13 Observability
 
@@ -738,11 +742,10 @@ apply sau khi nhánh `main` chứa đầy đủ chart. Pipeline có thể đặt
 
 Các điểm dưới đây là giới hạn thật, không được mô tả thành capability đã hoàn tất:
 
-1. Chín service dùng chung image/codebase Django; chưa phải chín bounded context
-   độc lập về source repository và database ownership.
-2. GitLab pipeline và Argo CD manifest đã có trong code; GitHub là repository
-   GitOps, còn GitLab vẫn cần project/mirror, runner, registry và masked
-   `GITOPS_PUSH_URL` để chạy CI end-to-end.
+1. Hai service `notification` và `inventory` đã độc lập; bảy Rollout còn lại vẫn
+   dùng chung Django image/codebase và chưa phải bounded context hoàn chỉnh.
+2. GitHub Actions + GHCR + Argo CD đã chạy CI/CD end-to-end. Jenkins hiện là môi
+   trường thực hành dự phòng, chưa giữ registry/signing credential production.
 3. Keycloak đang chạy nhưng kubectl OIDC chưa được bật trên ba kube-apiserver.
    Cần issuer HTTPS ổn định, CA trust, realm/client/group mapper và RBAC.
 4. PSA namespace đã dùng `restricted:latest` Enforce. Namespace `cks-lab` tách
@@ -752,8 +755,8 @@ Các điểm dưới đây là giới hạn thật, không được mô tả th�
 6. Worker1 đã mở rộng root disk lên 300 GiB và dùng eviction reserve 10%, nhưng
    Longhorn vẫn dùng chung physical/virtual disk với OS và containerd. Production
    nên tách riêng data disk để giảm failure domain và I/O contention.
-7. Image `aims-backend:prod-sim` đang được nạp cục bộ lên worker để mô phỏng. CI
-   thật phải push immutable digest vào registry mà mọi node truy cập được.
+7. Image ứng dụng đã chạy bằng GHCR private immutable digest; token pull trong
+   lab vẫn là Secret tạo out-of-band và nên được Vault/ESO xoay vòng tự động.
 8. Rekor đang được dùng theo mặc định public Sigstore trong pipeline; chưa có
    private Rekor instance on-premise.
 9. Backup recovery và restore drill ConfigMap cô lập đã hoàn tất; các daily
@@ -1133,9 +1136,10 @@ Jenkins chart `5.9.56` đã được cài tại namespace `jenkins` với contro
 `2.568.3`, PVC Longhorn 20 GiB, PSA Restricted, `runAsNonRoot`, root filesystem
 read-only và controller `numExecutors: 0`. Build chạy bằng Kubernetes ephemeral
 agent; controller có quyền tạo Pod agent trong namespace `jenkins` nhưng không
-được đọc Secret. Jenkins là CI duy nhất: test/build/scan/SBOM/sign và cập nhật
-GitOps digest. Argo CD tiếp tục là CD duy nhất, nên Jenkins không có quyền
-`kubectl apply` vào namespace `production`.
+được đọc Secret. Jenkins được giữ để thực hành pipeline trên Kubernetes nhưng
+chưa giữ credential registry dài hạn. GitHub Actions hiện là CI phát hành chính;
+Argo CD tiếp tục là CD duy nhất, nên cả Jenkins lẫn runner GitHub đều không có
+quyền `kubectl apply` vào namespace `production`.
 
 `notification-service` là microservice đầu tiên được tách khỏi Django monolith:
 source, dependency, Dockerfile và test riêng tại `services/notification-service`;
@@ -1151,9 +1155,40 @@ CA từ `aims-kafka-cluster-ca-cert`, kết nối TLS listener `9093`, consumer 
 ghi `notification-delivered`. Một `PeerAuthentication` chỉ cho Kafka port 9093
 ở `PERMISSIVE` là cần thiết để native Strimzi TLS đi qua Ambient; ACL Kafka và
 mutual TLS vẫn bắt buộc. Việc này không biến toàn namespace thành PERMISSIVE.
-Các domain order/inventory/payment vẫn chưa tách hoàn toàn vì còn truy vấn ORM
-chéo; chúng phải được migrate qua outbox/event contract, database ownership và
-idempotent consumer theo thứ tự đã ghi trong `services/README.md`.
+Các domain order/payment vẫn chưa tách hoàn toàn vì còn truy vấn ORM chéo; chúng
+phải được migrate qua outbox/event contract, database ownership và idempotent
+consumer theo thứ tự đã ghi trong `services/README.md`.
+
+### 14.16 GitHub supply chain và inventory-service độc lập
+
+Workflow `.github/workflows/aims-supply-chain.yml` đã chạy end-to-end với bốn
+image `backend`, `frontend`, `notification-service` và `inventory-service`.
+Mỗi image được build/push lên GHCR bằng digest bất biến, quét Trivy với cổng
+chặn Critical, sinh Syft CycloneDX, ký Cosign keyless qua GitHub OIDC và gắn hai
+in-toto attestation: SLSA provenance v1 và SBOM CycloneDX. Pipeline tự verify
+signature/attestation trước khi bot cập nhật Helm values; cơ chế freshness chặn
+một workflow cũ promote đè lên release mới. Argo CD sau đó reconcile commit
+GitOps, không nhận lệnh deploy trực tiếp từ CI.
+
+`inventory-service` là microservice độc lập thứ hai. Service viết bằng FastAPI,
+sở hữu schema PostgreSQL `inventory_service`, consume
+`aims.business.order.created.v1` qua Kafka TLS/mTLS và group
+`aims.inventory-service.v1`. Consumer commit offset thủ công, ghi event đã xử lý
+để idempotent và dùng transactional outbox phát
+`InventoryReserved`/`InventoryRejected`; topic rejected mới có 6 partition,
+replication factor 3 và min ISR 2.
+
+Smoke test live đã điều chỉnh tồn kho mẫu về 5, publish một `OrderCreated` số
+lượng 2, quan sát tồn kho chuyển thành available 3/reserved 2 và outbox được
+publish. Publish lại đúng `eventId` không trừ kho lần hai; bảng processed event
+vẫn 1 bản ghi và outbox vẫn 1 bản ghi. Như vậy boundary database, idempotency và
+outbox đã được kiểm tra bằng dữ liệu thật, không chỉ dừng ở manifest.
+
+Tại thời điểm này cụm vẫn có 9 business Rollout: 2 service đã tách image/code/
+database-consumer thật (`notification`, `inventory`) và 7 workload tương thích
+dùng chung Django backend. `search-recommendation-service` là service thứ 10
+trong kiến trúc đích nhưng chưa được đưa vào live; báo cáo không coi việc tách
+microservice là hoàn tất cho đến khi các domain còn lại bỏ truy vấn ORM chéo.
 
 ## 15. Kết luận
 

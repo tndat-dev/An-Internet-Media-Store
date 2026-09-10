@@ -145,6 +145,8 @@ jobs:
           tags: |
             ${{ steps.image.outputs.repository }}:${{ github.sha }}
             ${{ steps.image.outputs.repository }}:main
+          build-args: |
+            AIMS_SOURCE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

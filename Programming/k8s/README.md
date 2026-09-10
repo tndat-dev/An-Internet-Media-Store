@@ -68,17 +68,15 @@ Rollouts, CloudNativePG, Strimzi, RabbitMQ Cluster Operator, Redis Operator,
 MinIO Operator, Kyverno, Gatekeeper, External Secrets và Velero. Secret thật
 phải nằm trong Vault; không commit mật khẩu, token, private key hoặc `.env`.
 
-Image mặc định `aims-backend:prod-sim` phục vụ lab và được nạp cục bộ trên ba
-worker. Frontend lab nằm trên worker3/worker4; chạy
-`scripts/label-lab-frontend-nodes.sh k8s-worker3.local k8s-worker4.local` trước
-reconcile. Khi CI publish registry digest, job GitOps cập nhật cả backend lẫn
-frontend và xóa nodeSelector lab.
+Helm values hiện pin immutable GHCR digest cho backend, frontend, notification
+và inventory. Tạo `production/ghcr-pull` loại
+`kubernetes.io/dockerconfigjson` bằng Vault/ESO hoặc quy trình out-of-band trước
+khi reconcile; không lưu token trong Git. Affinity/anti-affinity phân bố replica
+trên ba worker, không còn phụ thuộc image nạp cục bộ theo node.
 
-Trivy Operator bỏ qua vulnerability scan riêng cho hai tag node-local này vì
-scan Job không mount containerd socket và registry mirror không chứa image lab;
-CI vẫn scan/SBOM image khi build. `excludeImages` chứa cả tên gốc lẫn tên đã
-normalize qua `mirror.gcr.io`. Mọi image platform có registry vẫn được Trivy
-Operator scan bình thường; bỏ exclusion sau khi GHCR digest được dùng.
+Trivy Operator quét workload image có registry; GitHub Actions đồng thời quét
+chặn Critical trước khi ký và promote. Các exclusion `prod-sim` cũ chỉ còn để
+tương thích rollback lịch sử, không khớp image GHCR đang chạy.
 
 ## Cài profile trên từng worker
 
@@ -218,6 +216,7 @@ apply:
 EXPECTED_REVISION=<full-git-sha> \
 EXPECTED_SOURCE_REVISION=<source-build-full-git-sha> \
 EXPECTED_NOTIFICATION_SOURCE_REVISION=<notification-source-full-git-sha> \
+EXPECTED_INVENTORY_SOURCE_REVISION=<inventory-source-full-git-sha> \
   scripts/audit-live-sync.sh
 SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
@@ -229,11 +228,10 @@ frontend Helm/read-only, HTTP+HTTPS Gateway, RBAC, Kyverno/Gatekeeper,
 kube-bench/runtime detector và không còn controller legacy. Có thể đổi topology bằng `EXPECTED_READY_NODES`,
 `EXPECTED_CONTROL_PLANES`, `EXPECTED_WORKERS` khi join thêm node.
 
-`EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu image
-node-local. Verifier sẽ yêu cầu 16 pod Django compatibility và hai frontend pod
-mang đúng annotation `aims.hust.vn/source-revision`; `notification-service` có
-revision độc lập qua `EXPECTED_NOTIFICATION_SOURCE_REVISION` (hiện là
-`3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f`).
+`EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu release.
+Verifier yêu cầu 14 pod Django compatibility và hai frontend pod mang đúng
+annotation `aims.hust.vn/source-revision`; `notification-service` và
+`inventory-service` có revision độc lập qua hai biến tương ứng ở trên.
 
 Nếu external Sentinel validation bật binding
 `sentinel-experiment-resource-lock`, verifier ghi riêng bốn controller đo tải là
@@ -242,21 +240,23 @@ trở lại tiêu chí legacy và phải được `cleanup-production-legacy.sh`
 
 ## Supply chain SLSA
 
-`.gitlab-ci.yml` thực hiện test → build → Trivy + kubesec → Syft CycloneDX →
-SLSA provenance → Cosign keyless sign/attest → verify → GitOps. Image được ký
-theo digest, Fulcio certificate gắn với GitLab pipeline identity và entry được
-ghi vào Rekor. Hai attestation bắt buộc là:
+`.github/workflows/aims-supply-chain.yml` là pipeline phát hành chính và thực
+hiện test → build → Trivy → Syft CycloneDX → SLSA provenance → Cosign keyless
+sign/attest → verify → GitOps. Image được ký theo digest, Fulcio certificate gắn
+với GitHub Actions identity và entry được ghi vào Rekor. Hai attestation bắt
+buộc là:
 
 - `https://slsa.dev/provenance/v1` với build definition, source revision,
   builder/run metadata và digest SBOM trong resolved dependency/byproduct;
-- `https://cyclonedx.org/schema` chứa SBOM đầy đủ.
+- `https://cyclonedx.org/bom` chứa CycloneDX component/hash/PURL; bản Syft đầy
+  đủ được giữ làm CI artifact 30 ngày.
 
-Policy Kyverno đang ở `Audit` vì image lab `aims-backend:prod-sim` chưa ở
-registry; mode này dùng `mutateDigest=false`, `verifyDigest=true`. Sau pipeline
-registry đầu tiên thành công và `cosign verify*` pass, đổi
-`validationFailureAction` thành `Enforce` và bật `mutateDigest=true`. Registry
-path và GitLab identity
-trong `22-supply-chain-policy.yaml` phải khớp project thực tế nếu fork repo.
+Policy Kyverno chạy `Enforce`, dùng `mutateDigest=false`, `verifyDigest=true` vì
+Helm values đã pin GHCR digest. Role giới hạn Kyverno chỉ đọc đúng Secret
+`production/ghcr-pull`. Pipeline pin Cosign 2.6.x để sinh `.sig/.att` mà Kyverno
+1.18.2 đọc ổn định; bản Cosign 3 OCI 1.1-only hiện có lỗi discovery upstream.
+Registry path và GitHub workflow identity trong `22-supply-chain-policy.yaml`
+phải được đổi đồng bộ nếu fork repository.
 
 Tạo backup thủ công an toàn:
 
@@ -303,8 +303,8 @@ không thay thế kiểm thử phục hồi PostgreSQL/Kafka và volume đầy �
 - Keycloak chạy cho ứng dụng nhưng kube-apiserver chưa bật OIDC cho `kubectl`.
 - PSA `restricted:latest` đã Enforce trong production; `cks-lab` cố ý dùng
   Baseline Enforce và Restricted Audit/Warn để thực hành negative test.
-- GitLab CI/Argo CD cần repository, runner, registry và credential thật để chạy
-  end-to-end.
+- GitHub Actions/GHCR/Argo CD đã chạy end-to-end; Jenkins được giữ làm lab và
+  chưa được cấp registry/signing credential dài hạn.
 - SLSA predicate hiện do job trong repository tạo nên chỉ được tuyên bố là
   provenance tương thích SLSA Build L1; muốn tuyên bố Build L2/L3 cần provenance
   do control plane của hosted/hardened builder sinh ra độc lập với tenant.

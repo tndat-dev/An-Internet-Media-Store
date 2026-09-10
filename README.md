@@ -139,8 +139,8 @@ pods), 2 frontend pods, highly available data services, strict mTLS, Restricted
 Pod Security Admission, policy enforcement, observability, and Velero backups.
 
 > The checked-in defaults are suitable for the on-premises lab. Before using
-> them for a real production system, replace the node-local `prod-sim` images,
-> self-signed `aims.lab` certificate, and demo OpenSearch certificates as
+> them for a real production system, replace the self-signed `aims.lab`
+> certificate and demo OpenSearch certificates as
 > described in [Production hardening](#production-hardening).
 
 ### Cluster prerequisites
@@ -241,11 +241,10 @@ backup, or legacy-controller cleanup does not match the expected state.
 
 Complete these items before exposing the system to production traffic:
 
-- Publish backend and frontend images to a private registry and deploy immutable
-  digests instead of node-local `prod-sim` tags.
-- Run the GitLab supply-chain pipeline (Trivy/kubesec, Syft SBOM, SLSA
-  provenance, and Cosign signing/attestation), verify it succeeds, then change
-  the supply-chain policy from `Audit` to `Enforce`.
+- Rotate the GHCR pull credential through Vault/External Secrets and retain only
+  immutable digests in GitOps.
+- Keep the GitHub Actions supply-chain gate (Trivy, Syft SBOM, SLSA provenance,
+  Cosign keyless signing/attestation) and Kyverno admission policy enforced.
 - Replace self-signed ingress and OpenSearch demo certificates with certificates
   issued by a trusted public or internal CA.
 - Configure kube-apiserver OIDC with Keycloak for cluster-user authentication.

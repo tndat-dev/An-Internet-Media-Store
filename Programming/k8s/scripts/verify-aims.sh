@@ -17,6 +17,7 @@ expected_control_planes=${EXPECTED_CONTROL_PLANES:-3}
 expected_workers=${EXPECTED_WORKERS:-3}
 expected_source_revision=${EXPECTED_SOURCE_REVISION:-}
 expected_notification_source_revision=${EXPECTED_NOTIFICATION_SOURCE_REVISION:-}
+expected_inventory_source_revision=${EXPECTED_INVENTORY_SOURCE_REVISION:-}
 
 nodes=$(kubectl get nodes -o json)
 ready_nodes=$(jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length' <<< "$nodes")
@@ -50,11 +51,15 @@ check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTime
 
 if [[ -n "${expected_source_revision}" ]]; then
   check "Compatibility backend source revision" \
-    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] != "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 16
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] != "notification-service" and .metadata.labels["app.kubernetes.io/name"] != "inventory-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 14
 fi
 if [[ -n "${expected_notification_source_revision}" ]]; then
   check "Notification service source revision" \
     "$(jq --arg revision "${expected_notification_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 2
+fi
+if [[ -n "${expected_inventory_source_revision}" ]]; then
+  check "Inventory service source revision" \
+    "$(jq --arg revision "${expected_inventory_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "inventory-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 2
 fi
 
 frontend=$(kubectl -n production get deployment aims-frontend -o json)
@@ -156,6 +161,9 @@ check "Gateway HTTP samples" "$http_ok" "$gateway_samples"
 check "Gateway HTTPS samples" "$https_ok" "$gateway_samples"
 check "RBAC readonly role exists" "$(kubectl -n production get role aims-readonly -o jsonpath='{.metadata.name}')" aims-readonly
 check "Kyverno Cosign/SLSA policy ready" "$(kubectl get clusterpolicy aims-verify-signed-slsa-images -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" True
+check "Kyverno Cosign/SLSA policy Enforce" "$(kubectl get clusterpolicy aims-verify-signed-slsa-images -o jsonpath='{.spec.validationFailureAction}')" Enforce
+check "Kyverno admission can read GHCR credential" "$(kubectl auth can-i get secret/ghcr-pull -n production --as=system:serviceaccount:kyverno:kyverno-admission-controller)" yes
+check "Kyverno background can read GHCR credential" "$(kubectl auth can-i get secret/ghcr-pull -n production --as=system:serviceaccount:kyverno:kyverno-background-controller)" yes
 check "Kyverno AIMS runtime policy Enforce" "$(kubectl get clusterpolicy production-runtime-hardening -o jsonpath='{.spec.validationFailureAction}')" Enforce
 check "Trivy Operator ready" "$(kubectl -n trivy-system get deploy trivy-operator -o jsonpath='{.status.readyReplicas}')" 1
 check "Trivy server ready" "$(kubectl -n trivy-system get sts trivy-server -o jsonpath='{.status.readyReplicas}')" 1

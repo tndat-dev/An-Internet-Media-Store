@@ -8,6 +8,8 @@ ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 RUN npm run build
 
 FROM node:22-alpine
+ARG AIMS_SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${AIMS_SOURCE_REVISION}"
 ENV NODE_ENV=production
 WORKDIR /app
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
