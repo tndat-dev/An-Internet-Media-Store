@@ -101,8 +101,22 @@ class Runtime:
             await self.ingest(event); await self.consumer.commit()
 
     async def ingest(self, event: TelemetryEvent) -> dict[str, Any]:
-        anomaly, score = self.detector.score(event.features())
         async with await self.connect() as connection:
+            # Replicas receive different Kafka partitions and HTTP requests, so
+            # an in-memory-only warm-up would never represent the global event
+            # stream. Rehydrate the detector from the shared owned schema until
+            # this replica has a sufficient window, then append the new sample.
+            if len(self.detector.samples) < 32:
+                cursor = await connection.execute(
+                    "SELECT feature_vector FROM security_telemetry_service.events "
+                    "ORDER BY occurred_at DESC LIMIT 32"
+                )
+                history = await cursor.fetchall()
+                self.detector.samples.clear()
+                self.detector.samples.extend(
+                    list(row["feature_vector"]) for row in reversed(history)
+                )
+            anomaly, score = self.detector.score(event.features())
             cursor = await connection.execute("INSERT INTO security_telemetry_service.events(source,event_type,severity,feature_vector,payload,anomaly,anomaly_score,occurred_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (event.source, event.eventType, event.severity, Jsonb(event.features()), Jsonb(event.payload), anomaly, score, event.occurredAt))
             event_id = (await cursor.fetchone())["id"]
         return {"id": event_id, "anomaly": anomaly, "score": score, "detector": "IsolationForest-v1"}
