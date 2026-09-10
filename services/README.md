@@ -25,7 +25,8 @@ advisory locks so both replicas can start concurrently during an Argo Rollout.
 
 This is deliberately a production-like teaching implementation rather than a
 complete commerce product: all stateful services currently share one CNPG
-database/credential while isolating schemas, Keycloak owns registration, the
-search path falls back to Catalog until OpenSearch indexing is added, and the
-notification provider is a lab sink. Those limitations do not couple service
-images or deployment lifecycles back to Django.
+database/credential while isolating schemas, auth delegates credentials and
+customer lifecycle to Keycloak, the search path falls back to Catalog until
+OpenSearch indexing is added, and the notification provider is a lab sink.
+Those limitations do not couple service images or deployment lifecycles back
+to Django.

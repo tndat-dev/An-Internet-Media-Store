@@ -24,7 +24,7 @@ if ! kcadm get realms/aims >/dev/null 2>&1; then
     -s displayName='AIMS Production' >/dev/null
 fi
 
-for role in app-user app-admin k8s-admin; do
+for role in CUSTOMER PRODUCT_MANAGER ADMIN app-user app-admin k8s-admin; do
   if ! kcadm get "roles/${role}" -r aims >/dev/null 2>&1; then
     kcadm create roles -r aims -s "name=${role}" >/dev/null
   fi
@@ -38,6 +38,7 @@ if [[ -z "${app_id}" ]]; then
     -s enabled=true \
     -s publicClient=false \
     -s standardFlowEnabled=true \
+    -s directAccessGrantsEnabled=true \
     -s serviceAccountsEnabled=true \
     -s 'redirectUris=["http://10.1.16.234/*","http://10.1.16.238/*","http://10.1.16.239/*"]' \
     -s 'webOrigins=["http://10.1.16.234","http://10.1.16.238","http://10.1.16.239"]' \
@@ -45,8 +46,20 @@ if [[ -z "${app_id}" ]]; then
 else
   kcadm update "clients/${app_id}" -r aims \
     -s enabled=true -s publicClient=false -s standardFlowEnabled=true \
-    -s serviceAccountsEnabled=true -s "secret=${AIMS_CLIENT_SECRET}" >/dev/null
+    -s directAccessGrantsEnabled=true -s serviceAccountsEnabled=true \
+    -s "secret=${AIMS_CLIENT_SECRET}" >/dev/null
 fi
+app_id=$(kcadm get clients -r aims -q clientId=aims-app --fields id --format csv \
+  --noquotes | head -n1)
+
+# auth-service uses this confidential client's service account only for user
+# registration, CUSTOMER assignment and password reset. It receives no realm
+# administration or client-management role.
+service_account_id=$(kcadm get "clients/${app_id}/service-account-user" -r aims \
+  --fields id --format csv --noquotes)
+kcadm add-roles -r aims --uid "${service_account_id}" \
+  --cclientid realm-management --rolename manage-users --rolename view-users \
+  --rolename view-realm >/dev/null
 
 kube_id=$(kcadm get clients -r aims -q clientId=kubernetes --fields id --format csv \
   --noquotes | head -n1)
