@@ -1,6 +1,6 @@
 backendImage:
   repository: ghcr.io/tndat-dev/aims-backend
-  tag: sha256:2f82981edb3c4dd451e5a8be1be05b52e5700c002bf86e5528be169548c0871e
+  tag: sha256:54ad50a19e7aa23f65c241d9681ec1497158c238efc85d9e5dfa9cc45d8d1f24
   pullPolicy: IfNotPresent
 imagePullSecrets:
 - name: ghcr-pull
@@ -8,7 +8,7 @@ imagePullSecrets:
 # Immutable source revision used to force a controlled rollout when a node-local
 # lab image is rebuilt under the stable prod-sim tag. Registry deployments use
 # an image digest and update this value to the commit that produced that digest.
-sourceRevision: "91fb202c77046eba7a792d6ce4e6845f46b0d9ab"
+sourceRevision: "6f7b23ca8731a3110a4d4a21d9bb0e13648d6d5c"
 
 frontend:
   replicas: 2
@@ -17,7 +17,7 @@ frontend:
   nodeSelector: {}
   image:
     repository: ghcr.io/tndat-dev/aims-frontend
-    tag: sha256:91509b8d5d9df7fb45a553bc1d13eb12fc7bf04e3bd53ba30bee1b657afabb5e
+    tag: sha256:56d0809e62369de5a6c828d23b10e7dcc1aa9328f96a1b2fda9025752144f372
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -55,7 +55,7 @@ services:
     # built GHCR digest only after scan/sign/attestation succeeds.
   image:
     repository: ghcr.io/tndat-dev/aims-inventory-service
-    tag: sha256:761ca1f00f5bdaffdf1a20c0ccf050d63963b63eed52f1ce85730a789c99b74c
+    tag: sha256:303784156a076c55ada03b6a06ed9d5bbb55691b04d3c4f087fd52851fdae8e8
     pullPolicy: IfNotPresent
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
@@ -65,15 +65,15 @@ services:
     KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
     KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
     KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
-  sourceRevision: 91fb202c77046eba7a792d6ce4e6845f46b0d9ab
+  sourceRevision: 6f7b23ca8731a3110a4d4a21d9bb0e13648d6d5c
 - name: notification-service
   replicas: 2
   sandbox: true
   image:
     repository: ghcr.io/tndat-dev/aims-notification-service
-    tag: sha256:61b4dbfd34464661a5170e70db81b4318f9f9fb6d23790ecf3a16bb034e95843
+    tag: sha256:2f4bb193c593ef43ac3d692c148b905bf678a244d06122ad57140217bdfcac82
     pullPolicy: IfNotPresent
-  sourceRevision: "91fb202c77046eba7a792d6ce4e6845f46b0d9ab"
+  sourceRevision: "6f7b23ca8731a3110a4d4a21d9bb0e13648d6d5c"
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
