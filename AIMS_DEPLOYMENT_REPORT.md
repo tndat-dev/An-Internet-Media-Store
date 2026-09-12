@@ -1217,8 +1217,8 @@ trở lại `running`, không mất message. Backup
 `aims-config-drill-20260912140426` phục hồi 12 ConfigMap, 0 Pod/Secret/PVC/
 controller vào namespace cô lập rồi cleanup thành công.
 
-Audit cuối tại GitOps revision
-`1330df6a7a0590763703e4de24df780bd62a391b` đạt toàn bộ assertion: 6/6 node
+Audit sau platform revision `1330df6a7a0590763703e4de24df780bd62a391b` và
+được chạy lại sau commit tài liệu hiện hành đều đạt toàn bộ assertion: 6/6 node
 Ready, không DiskPressure, 0 pod non-ready/Unknown, 0 Job failed, 0 PVC unbound,
 29/29 Longhorn volume healthy, Argo CD `Synced/Healthy`, Gateway HTTP/HTTPS
 6/6 mẫu, Trivy không còn Job/Pending scan lỗi, policy report 0 fail và 0 warn.

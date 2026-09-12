@@ -453,7 +453,7 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Istio Ambient | ztunnel 6/6, waypoint Ready, mTLS STRICT |
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
-| Argo CD | `Synced/Healthy`, revision `1330df6a7a0590763703e4de24df780bd62a391b` tại lần audit này |
+| Argo CD | `Synced/Healthy`; verifier đối chiếu full revision Git hiện hành ở mỗi lần chạy |
 | Source runtime | 20 pod từ 10 image service độc lập + 2 frontend, cùng source revision |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
