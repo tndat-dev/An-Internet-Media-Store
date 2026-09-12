@@ -284,16 +284,17 @@ restore. Một chiến lược DR đúng cần cả hai và phải kiểm thử 
 | `catalog-service` | media/product catalog | PostgreSQL | runc |
 | `cart-service` | giỏ hàng | PostgreSQL, Catalog HTTP | runc |
 | `order-service` | order lifecycle | PostgreSQL, Kafka | runc |
-| `payment-service` | payment orchestration | RabbitMQ, PostgreSQL | runc |
+| `payment-service` | payment orchestration | PostgreSQL, Kafka; RabbitMQ planned | runc |
 | `inventory-service` | tồn kho/reservation | PostgreSQL, Kafka | runc |
-| `notification-service` | email/webhook task | RabbitMQ + DLQ | runc |
+| `notification-service` | email/webhook task | Kafka; RabbitMQ + DLQ planned | runc |
 | `search-recommendation-service` | tìm kiếm và gợi ý | PostgreSQL, Kafka | runc |
 | `security-telemetry-service` | runtime/audit/ML feature | Kafka, OpenSearch | Localhost seccomp + AppArmor |
 
 Mười service là 10 process/deployment và 10 image GHCR độc lập được pin bằng
 digest. API Gateway chỉ làm routing/facade; service không còn truy vấn ORM của
-domain khác. Giao dịch xuyên service dùng HTTP contract, Kafka event versioned,
-transactional outbox/idempotent consumer và RabbitMQ task ack/DLQ. PostgreSQL
+domain khác. Giao dịch xuyên service hiện dùng HTTP contract, Kafka event
+versioned, transactional outbox và idempotent consumer. RabbitMQ task ack/DLQ
+là phần nối tiếp theo, không phải luồng runtime đã hoàn tất. PostgreSQL
 vẫn là một CNPG cluster dùng chung hạ tầng cho lab, nhưng schema ownership được
 tách theo service để giữ ranh giới dữ liệu.
 
@@ -732,8 +733,10 @@ apply sau khi nhánh `main` chứa đầy đủ chart. Pipeline có thể đặt
 
 Các điểm dưới đây là giới hạn thật, không được mô tả thành capability đã hoàn tất:
 
-1. Hai service `notification` và `inventory` đã độc lập; bảy Rollout còn lại vẫn
-   dùng chung Django image/codebase và chưa phải bounded context hoàn chỉnh.
+1. Mười service đã có source/image/schema hoặc state boundary riêng. RabbitMQ
+   mới hoàn tất cluster và hai Queue CR; payment/notification vẫn giao tiếp bằng
+   Kafka, chưa có AMQP publisher/consumer manual-ack, app User/Permission và
+   Exchange/Binding/DLQ đầy đủ.
 2. GitHub Actions + GHCR + Argo CD đã chạy CI/CD end-to-end. Jenkins hiện là môi
    trường thực hành dự phòng, chưa giữ registry/signing credential production.
 3. Keycloak đang chạy nhưng kubectl OIDC chưa được bật trên ba kube-apiserver.
@@ -1192,9 +1195,10 @@ verify rồi mới commit digest cho Argo CD.
 
 Release source `d62f093f068053b8afe92a3255f70eced89d3478` đã chạy 10/10
 Rollout, 20/20 replica và hai frontend. E2E live đã chứng minh đăng ký/đổi mật
-khẩu/login qua Keycloak, catalog → cart → order → inventory reservation qua
-Kafka → payment → notification qua RabbitMQ, tìm kiếm/gợi ý và phát hiện anomaly
-bằng IsolationForest. Bảy schema được sở hữu riêng: `cart_service`,
+khẩu/login qua Keycloak, catalog → cart → order → inventory reservation →
+payment → notification qua Kafka, tìm kiếm/gợi ý và phát hiện anomaly bằng
+IsolationForest. RabbitMQ hiện là hạ tầng task queue đã Ready nhưng chưa tham gia
+business flow. Bảy schema được sở hữu riêng: `cart_service`,
 `catalog_service`, `inventory_service`, `order_service`, `payment_service`,
 `search_recommendation_service` và `security_telemetry_service`.
 
@@ -1224,14 +1228,35 @@ Ready, không DiskPressure, 0 pod non-ready/Unknown, 0 Job failed, 0 PVC unbound
 6/6 mẫu, Trivy không còn Job/Pending scan lỗi, policy report 0 fail và 0 warn.
 `audit-live-sync.sh`, `verify-aims.sh` và `verify-cks-lab.sh` đều exit 0.
 
+### 14.18 Audit toàn repository và live cluster ngày 12/09/2026
+
+Quét lại 549 file tracked xác nhận không có conflict marker, private key/token
+dạng phổ biến hoặc file secret/env bị track. 36 YAML thuần, chart Helm, JSON,
+158 file Python, 26 shell script, XML Draw.io và 31 Markdown đều qua kiểm tra cú
+pháp/liên kết. Ba liên kết tài liệu sai cấp thư mục đã sửa; ba shell script vận
+hành đã được đặt executable.
+
+Kiểm thử độc lập trả `207 passed` cho Django với PostgreSQL 17.6, frontend lint
+và typecheck PASS, 10/10 suite FastAPI trả 22 passed và 1 integration test skip
+khi không có broker. Source, CI matrix và Helm values cùng liệt kê đúng 10
+service. Audit live trả 6/6 node Ready, 228 pod Running, 6 pod Succeeded, không
+có pod lỗi/unready, controller thiếu replica, failed Job hay PVC unbound; cả
+`verify-aims.sh` và `verify-cks-lab.sh` đều PASS.
+
+Audit sâu cũng xác nhận RabbitMQ runtime credential của app chưa authenticate
+được và source không chứa AMQP client. Đây là khoảng trống chức năng cần hoàn
+thiện nếu bài lab phải chứng minh payment/notification task queue manual ack +
+DLQ; không cần bổ sung thêm một loại broker hoặc service mesh mới.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,
 network, mesh, identity, policy, data, messaging, storage, supply chain,
 observability, runtime security và DR. Giá trị lớn nhất của triển khai không chỉ
 là số lượng công cụ mà là các điểm tích hợp đã được kiểm chứng: Cilium với HBONE,
-mTLS STRICT với probe, Vault với ESO, operator với PSA, Kafka với RabbitMQ theo
-đúng semantics, và Longhorn snapshot trước filesystem recovery.
+mTLS STRICT với probe, Vault với ESO, operator với PSA, Kafka event flow và
+Longhorn snapshot trước filesystem recovery. RabbitMQ semantics là phần mở rộng
+đã được ghi rõ, không được tính là tích hợp business đã nghiệm thu.
 
 Hệ thống phù hợp cho lab CKA/CKS và demo production-like của AIMS. Để gọi là
 production enterprise cần xử lý các giới hạn ở mục 12, đặc biệt storage/backup

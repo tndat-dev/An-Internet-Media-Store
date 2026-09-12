@@ -8,7 +8,7 @@ Tài liệu này giúp bạn đọc đúng luồng "Pay Order by Credit Card" tr
 - Luồng thành công kết thúc ở đâu? Sau khi capture thành công, backend cập nhật `PaymentTransaction` sang `SUCCESS`, gọi seam hoàn tất order, rồi order sang `PENDING_PROCESSING`.
 - File nào nên đọc trước? Bắt đầu từ `read-diagrams.md`, sau đó `read-code.md`, rồi `design-patterns.md`.
 - Có entity credit card riêng không? Không có. Code dùng `PaymentTransaction` làm trung tâm của giao dịch.
-- Nếu muốn lần runtime flow nhanh nhất thì xem gì? `PayOrderByCreditCard.puml`, `Programming/frontend/src/features/payment/components/PayPalPaymentButton.tsx`, và `Programming/backend/apps/payments/views.py`.
+- Nếu muốn lần runtime flow nhanh nhất thì xem gì? `ArchitecturalDesign/SequenceDiagram/astah/PayOrderByCreditCard.asta`, `Programming/frontend/src/features/payment/components/PayPalPaymentButton.tsx`, và `Programming/backend/apps/payments/views.py`.
 
 ## Nên đọc theo thứ tự này
 
@@ -23,8 +23,8 @@ Tài liệu này giúp bạn đọc đúng luồng "Pay Order by Credit Card" tr
 - `[Sequence diagram](../../../../ArchitecturalDesign/SequenceDiagram/images/PayOrderByCreditCard.png)`
 - `[Communication diagram](../../../../ArchitecturalDesign/CommunicationDiagram/images/PayOrderByCreditCard.png)`
 - `[Analysis class diagram](../../../../ArchitecturalDesign/AnalysisClassDiagram/IndividualUC/PayOrderByCreditCard.png)`
-- `[Detailed design class diagram source](../../../../PayOrderByCreditCard%20(1).puml)`
-- `[Sequence diagram source](../../../../PayOrderByCreditCard.puml)`
+- `[Detailed design class diagram source](../../../../Capstone%20Project/NguyenTuanDat/PayOrderByCreditCard_DetailDesign.asta)`
+- `[Sequence diagram source](../../../../ArchitecturalDesign/SequenceDiagram/astah/PayOrderByCreditCard.asta)`
 
 ## Tóm tắt nhanh
 

@@ -17,8 +17,10 @@ Kafka được dùng làm event log chung cho hai miền:
 - security telemetry: Tetragon event, application audit và output mô hình
   LSTM/Isolation Forest.
 
-Kafka không dùng làm task queue payment/notification. Task cần ack, retry và DLQ
-được chuyển qua RabbitMQ; Kafka giữ event có retention và replay.
+Về kiến trúc đích, Kafka không nên thay task queue payment/notification: task
+cần ack, retry và DLQ sẽ chuyển qua RabbitMQ, còn Kafka giữ event có retention
+và replay. Release hiện tại vẫn đưa chuỗi event payment/notification qua Kafka;
+nhánh AMQP chưa nối vào source.
 
 ## 2. Lý thuyết Kafka
 

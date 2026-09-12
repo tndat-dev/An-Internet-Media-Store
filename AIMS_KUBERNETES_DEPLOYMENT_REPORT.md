@@ -110,16 +110,17 @@ flowchart TB
 | `catalog-service` | sản phẩm, media metadata | PostgreSQL | Kafka business | read-only theo lộ trình |
 | `cart-service` | giỏ hàng | Redis/PostgreSQL | Kafka | cache + mTLS |
 | `order-service` | vòng đời đơn hàng | PostgreSQL | Kafka business | canary |
-| `payment-service` | điều phối thanh toán | PostgreSQL | RabbitMQ ack/DLQ + Kafka | runc + seccomp |
+| `payment-service` | điều phối thanh toán | PostgreSQL | Kafka; RabbitMQ ack/DLQ là bước tiếp theo | runc + seccomp |
 | `inventory-service` | tồn kho/reservation | PostgreSQL | Kafka | idempotency cần bảo đảm |
-| `notification-service` | email/thông báo | PostgreSQL | RabbitMQ ack/DLQ | runc + seccomp |
+| `notification-service` | email/thông báo | PostgreSQL | Kafka; RabbitMQ ack/DLQ là bước tiếp theo | runc + seccomp |
 | `search-recommendation-service` | tìm kiếm/gợi ý | PostgreSQL | Kafka interaction | read-only rootfs |
 | `security-telemetry-service` | audit, feature/model anomaly | OpenSearch/Kafka | Kafka security topic | Localhost seccomp + AppArmor |
 
 Mười service có source, dependency, Dockerfile, test và image GHCR pin digest
 riêng. Bảy service stateful sở hữu PostgreSQL schema riêng; giao tiếp xuyên
-domain dùng HTTP contract, Kafka event versioned, outbox/idempotency và RabbitMQ
-task ack/DLQ. Backend Django cũ chỉ còn là artifact tương thích trong pipeline,
+domain dùng HTTP contract, Kafka event versioned và outbox/idempotency. RabbitMQ
+task ack/DLQ đã có cluster/Queue CR nhưng chưa nối vào business source. Backend
+Django cũ chỉ còn là artifact tương thích trong pipeline,
 không còn là image của 10 Rollout live.
 
 ## 4. Cơ sở lý thuyết các công nghệ
@@ -349,7 +350,8 @@ PostgreSQL legacy được giữ tạm thời để rollback, không còn nhận
 - Topic `aims-business-events`: 6 partition, RF=3, min ISR=2.
 - Topic `aims-security-telemetry`: 6 partition, RF=3, min ISR=2.
 - KafkaUser `aims-services`: TLS + simple ACL theo prefix `aims-`.
-- RabbitMQ 3 replica; queue payment/notification durable, có DLX/DLQ routing.
+- RabbitMQ 3 replica; queue payment/notification durable đã Ready. App user,
+  Exchange/Binding/DLQ và consumer manual-ack chưa hoàn tất.
 
 ### 5.6 Network và mesh
 
@@ -704,6 +706,7 @@ không tạo Pod, Secret, PVC hoặc controller và cleanup namespace thành cô
 | Đã xử lý | Argo CD repoURL | trỏ GitHub `tndat-dev/An-Internet-Media-Store`, tự sync từ `main` |
 | Trung bình | Rekor/keyless phụ thuộc GitHub OIDC/Internet | giữ artifact/attestation và kế hoạch mirror registry |
 | Thấp | Falco và Tetragon trùng một phần tín hiệu | phân vai rule/alert để giảm noise |
+| Trung bình | RabbitMQ mới Ready ở tầng cluster/Queue CR, chưa có business consumer | thêm User/Permission, DLX/binding và manual-ack/idempotency test |
 
 ## 11. Bộ thực hành CKS
 

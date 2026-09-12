@@ -47,7 +47,7 @@ flowchart TB
     API --> PG[(CloudNativePG 3)]
     API --> RD[(Redis + Sentinel 3)]
     API --> KF[(Kafka KRaft 3<br/>event log)]
-    API --> RMQ[(RabbitMQ 3<br/>task queue + ack/DLQ)]
+    API -.-> RMQ[(RabbitMQ 3<br/>platform Ready, app pending)]
     API --> KC[Keycloak OIDC]
     API --> OT[OpenTelemetry Collector]
 
@@ -265,13 +265,16 @@ pin digest riêng. API Gateway là façade/routing, không truy cập bảng c�
 khác. Bảy domain stateful sở hữu bảy PostgreSQL schema riêng; Keycloak sở hữu
 identity của auth-service.
 
-Kafka/RabbitMQ đã được business code sử dụng thật. Order ghi transactional
-outbox và phát `OrderCreated`; inventory consume idempotent, giữ hàng rồi phát
-`InventoryReserved`/`InventoryRejected`; payment consume event, tạo task có ack
-trên RabbitMQ và phát `PaymentCompleted`; notification consume event/task. Luồng
-đã được kiểm tra end-to-end trên release ký số, không còn chỉ là integration seam.
+Kafka đã được business code sử dụng thật. Order ghi transactional outbox và
+phát `OrderCreated`; inventory consume idempotent, giữ hàng rồi phát
+`InventoryReserved`/`InventoryRejected`; payment consume event và phát
+`PaymentCompleted`; notification consume event bằng consumer group riêng.
+RabbitMQ cluster cùng hai Queue CR đã Ready nhưng source hiện chưa có AMQP
+publisher/consumer, app credential chưa được topology operator cấp quyền và
+exchange/binding/DLQ chưa được khai báo đầy đủ. Vì vậy chưa coi nhánh RabbitMQ là
+business flow end-to-end.
 
-### 5.2 Luồng event/task đang chạy trên backbone
+### 5.2 Luồng event đang chạy và nhánh task dự kiến
 
 ```mermaid
 flowchart LR
@@ -282,11 +285,11 @@ flowchart LR
     P -->|PaymentCompleted / Failed| KB
     KB --> N[notification-service]
 
-    P -->|payment task| R[RabbitMQ quorum queue]
-    N -->|email/SMS task| R
-    R -->|manual ack| W[worker]
-    W -->|retry giới hạn| R
-    W -->|poison message| D[DLQ]
+    P -.->|chưa nối: payment task| R[RabbitMQ quorum queue]
+    N -.->|chưa nối: email/SMS task| R
+    R -.->|cần manual ack| W[worker]
+    W -.->|cần retry giới hạn| R
+    W -.->|cần DLX/binding| D[DLQ]
 
     KB --> S[(consumer replay/audit)]
 ```
@@ -295,7 +298,8 @@ Kafka giữ business event lâu, có partition/offset và replay; RabbitMQ đi�
 task cần ack, retry và DLQ. Không dùng Kafka thay task queue và không dùng
 RabbitMQ làm immutable event log. Strimzi chạy KRaft ba dual-role node, không có
 ZooKeeper; các topic business versioned và `aims-security-telemetry` có
-replication factor 3.
+replication factor 3. Các cạnh nét đứt là kiến trúc đích, chưa phải bằng chứng
+runtime của release hiện tại.
 
 ## 6. Luồng identity, secret và PKI
 
@@ -537,6 +541,8 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
 - SLSA provenance tự sinh trong job chỉ được tuyên bố tương thích Build L1;
   mức L2/L3 cần builder độc lập/hardened sinh provenance.
 - Backup MinIO cần replication/off-cluster nếu muốn chống mất toàn cụm.
+- RabbitMQ cần `User`/`Permission`, Exchange/Binding/DLQ và AMQP publisher/
+  consumer manual-ack trong payment/notification trước khi gọi là task flow E2E.
 
 Các giới hạn này không làm sai mục tiêu học tập: cụm hiện chứng minh đầy đủ
 orchestration, operator, HA, policy, supply-chain wiring, runtime security,

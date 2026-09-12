@@ -131,5 +131,5 @@ Bạn đọc đúng nếu trả lời được 5 câu này:
 - `[Sequence diagram](../../../../ArchitecturalDesign/SequenceDiagram/images/PayOrderByCreditCard.png)`
 - `[Communication diagram](../../../../ArchitecturalDesign/CommunicationDiagram/images/PayOrderByCreditCard.png)`
 - `[Analysis class diagram](../../../../ArchitecturalDesign/AnalysisClassDiagram/IndividualUC/PayOrderByCreditCard.png)`
-- `[Detailed design class diagram source](../../../../PayOrderByCreditCard%20(1).puml)`
-- `[Sequence diagram source](../../../../PayOrderByCreditCard.puml)`
+- `[Detailed design class diagram source](../../../../Capstone%20Project/NguyenTuanDat/PayOrderByCreditCard_DetailDesign.asta)`
+- `[Sequence diagram source](../../../../ArchitecturalDesign/SequenceDiagram/astah/PayOrderByCreditCard.asta)`

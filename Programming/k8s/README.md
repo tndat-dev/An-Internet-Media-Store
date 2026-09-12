@@ -140,16 +140,18 @@ ssh -L 18080:127.0.0.1:18080 dat@10.1.16.234 \
 ```
 
 Mở `http://localhost:18080`; password admin chỉ lấy lúc cần đăng nhập từ Secret
-`jenkins/aims-jenkins`, không lưu vào Git. [`../../../Jenkinsfile`](../../../Jenkinsfile)
+`jenkins/aims-jenkins`, không lưu vào Git. [`../../Jenkinsfile`](../../Jenkinsfile)
 là pipeline lab, chưa bật publish.
 
 Cả 10 bounded service đều có source, dependency, Dockerfile, test và image riêng
-tại [`../../../services`](../../../services): `api-gateway`, `auth`, `catalog`,
+tại [`../../services`](../../services): `api-gateway`, `auth`, `catalog`,
 `cart`, `order`, `payment`, `inventory`, `notification`,
 `search-recommendation`, `security-telemetry`. Bảy service stateful sở hữu schema
-PostgreSQL riêng; giao tiếp liên service đi qua HTTP contract, Kafka event log và
-RabbitMQ task/outbox thay vì ORM chéo. Contract event versioned nằm ở
-[`../../../contracts/asyncapi/aims-events.yaml`](../../../contracts/asyncapi/aims-events.yaml).
+PostgreSQL riêng; giao tiếp liên service hiện đi qua HTTP contract và Kafka
+event log/outbox thay vì ORM chéo. RabbitMQ cluster và hai queue đã sẵn sàng ở
+tầng platform, nhưng app user, exchange/binding/DLQ và consumer manual-ack vẫn
+là phần mở rộng tiếp theo. Contract event versioned nằm ở
+[`../../contracts/asyncapi/aims-events.yaml`](../../contracts/asyncapi/aims-events.yaml).
 
 ## Dashboard quản trị giao tiếp
 
