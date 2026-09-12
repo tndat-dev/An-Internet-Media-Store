@@ -435,6 +435,24 @@ metadata:
     app.kubernetes.io/part-of: aims
 spec:
   replicas: 3
+  override:
+    statefulSet:
+      spec:
+        template:
+          metadata:
+            annotations:
+              # The Erlang cookie/plugin directories are operator-managed
+              # emptyDirs. Kubernetes objects retain their source-of-truth;
+              # backing these transient mounts only adds Kopia noise.
+              backup.velero.io/backup-volumes-excludes: rabbitmq-erlang-cookie,rabbitmq-plugins
+          spec:
+            containers:
+              - name: rabbitmq
+                env:
+                  # Keep the live PID out of the Mnesia PVC. Kopia can then
+                  # read a stable data tree while the quorum cluster is live.
+                  - name: RABBITMQ_PID_FILE
+                    value: /operator/rabbitmq.pid
   affinity:
     podAntiAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
