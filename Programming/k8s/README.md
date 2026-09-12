@@ -1,11 +1,12 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu gần nhất 09/09/2026: 3 control-plane + 3 worker,
-9 Argo Rollout/18 pod microservice và 2 frontend pod, CloudNativePG 3/3, Kafka
-KRaft, RabbitMQ, Redis, MinIO, OpenSearch và backup Velero hoạt động. PSA
-Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0. Backend được
-phân bố 6/6/6 trên ba worker, hai frontend pod nằm trên hai worker khác nhau.
+`production`. Trạng thái nghiệm thu gần nhất 12/09/2026: 3 control-plane + 3
+worker, 10 Argo Rollout/20 pod microservice độc lập và 2 frontend pod,
+CloudNativePG 3/3, Kafka KRaft, RabbitMQ, Redis, MinIO, OpenSearch và Velero hoạt
+động. PSA Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
+Microservice được phân bố 6/7/7 trên ba worker, hai frontend pod nằm trên hai
+worker khác nhau.
 
 Repository chuẩn trên workstation là `/home/tndat/An-Internet-Media-Store`.
 Control-plane chính giữ clone đầy đủ tại `/home/dat/An-Internet-Media-Store` và
@@ -28,7 +29,7 @@ nằm tại [`../../AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md`](../../AIMS_MINIMAL_CLUS
 
 ## Cấu trúc
 
-- `aims-chart/`: 9 microservice dưới dạng Argo Rollout, frontend Deployment,
+- `aims-chart/`: 10 microservice dưới dạng Argo Rollout, frontend Deployment,
   Service, HTTP/HTTPS Gateway API và certificate TLS lab; ingress dùng
   `GatewayClass/istio`, Ambient L7 dùng `GatewayClass/istio-waypoint` riêng.
 - `platform/00-namespace.yaml`, `40-production-enforcement.yaml`: bootstrap PSA
@@ -68,8 +69,8 @@ Rollouts, CloudNativePG, Strimzi, RabbitMQ Cluster Operator, Redis Operator,
 MinIO Operator, Kyverno, Gatekeeper, External Secrets và Velero. Secret thật
 phải nằm trong Vault; không commit mật khẩu, token, private key hoặc `.env`.
 
-Helm values hiện pin immutable GHCR digest cho backend, frontend, notification
-và inventory. Tạo `production/ghcr-pull` loại
+Helm values hiện pin immutable GHCR digest cho frontend, backend tương thích và
+10 image microservice. Tạo `production/ghcr-pull` loại
 `kubernetes.io/dockerconfigjson` bằng Vault/ESO hoặc quy trình out-of-band trước
 khi reconcile; không lưu token trong Git. Affinity/anti-affinity phân bố replica
 trên ba worker, không còn phụ thuộc image nạp cục bộ theo node.
@@ -121,8 +122,9 @@ giữ tối đa 30 ngày.
 ## GitHub Actions CI, Jenkins lab và microservice extraction
 
 Pipeline chính là [`.github/workflows/aims-supply-chain.yml`](../../.github/workflows/aims-supply-chain.yml):
-test → build ba artifact hiện có → push GHCR → Trivy → Syft CycloneDX → Cosign
-keyless → SLSA/in-toto attestation → verify → commit digest vào Helm values.
+test → build frontend/backend và 10 image service → push GHCR → Trivy → Syft
+CycloneDX → Cosign keyless → SLSA/in-toto attestation → verify → commit digest
+vào Helm values.
 GitHub OIDC là identity ký; không lưu Cosign private key. Argo CD vẫn là CD
 reconciler duy nhất và workload luôn dùng immutable digest.
 
@@ -141,12 +143,13 @@ Mở `http://localhost:18080`; password admin chỉ lấy lúc cần đăng nh�
 `jenkins/aims-jenkins`, không lưu vào Git. [`../../../Jenkinsfile`](../../../Jenkinsfile)
 là pipeline lab, chưa bật publish.
 
-`notification-service` là service đầu tiên đã tách thật: source/image riêng ở
-[`../../../services/notification-service`](../../../services/notification-service),
-TLS Kafka và consumer group `aims-notification-service.v1`. Contract event
-versioned nằm ở [`../../../contracts/asyncapi/aims-events.yaml`](../../../contracts/asyncapi/aims-events.yaml).
-Các service khác vẫn đang compatibility mode cùng Django image; migration tiếp
-theo là catalog → inventory → order → payment, không được tách bằng copy image.
+Cả 10 bounded service đều có source, dependency, Dockerfile, test và image riêng
+tại [`../../../services`](../../../services): `api-gateway`, `auth`, `catalog`,
+`cart`, `order`, `payment`, `inventory`, `notification`,
+`search-recommendation`, `security-telemetry`. Bảy service stateful sở hữu schema
+PostgreSQL riêng; giao tiếp liên service đi qua HTTP contract, Kafka event log và
+RabbitMQ task/outbox thay vì ORM chéo. Contract event versioned nằm ở
+[`../../../contracts/asyncapi/aims-events.yaml`](../../../contracts/asyncapi/aims-events.yaml).
 
 ## Dashboard quản trị giao tiếp
 
@@ -174,7 +177,7 @@ không thuộc selector này. Không bật Argo CD `prune` cho đến khi repo G
 
 ## Trạng thái mã CI/CD và GitOps
 
-Bộ mã local đã có Dockerfile backend/frontend/notification, Helm chart AIMS,
+Bộ mã local đã có Dockerfile backend/frontend và 10 service, Helm chart AIMS,
 toàn bộ manifest platform/CKS và script vận hành. GitHub Actions định nghĩa đủ
 luồng `test → build → scan → attest → verify → gitops`, gồm Trivy, Syft SBOM,
 SLSA provenance, Cosign keyless sign/attest/verify và cập nhật image digest vào
@@ -190,8 +193,8 @@ Packages. GHCR package public không cần pull secret; package private phải c
 `imagePullSecret` qua Vault/External Secrets. Secret, token, password và private
 key không thuộc source code.
 
-Trạng thái live 03/08/2026: Argo CD 3.4.5 và Argo Rollouts 1.9.1 đều khỏe; 9/9
-Rollout AIMS `Healthy`. `Application/aims-production` đã đọc chart trên GitHub
+Trạng thái live 12/09/2026: Argo CD và Argo Rollouts đều khỏe; 10/10 Rollout
+AIMS `Healthy`. `Application/aims-production` đã đọc chart trên GitHub
 `main`, automated sync/prune/self-heal; cụm chưa cài GitLab Runner. Argo CD UI/API
 được expose NodePort `30081`, Rollouts Dashboard `30100`. Jenkins vẫn Ready
 nhưng được hoãn làm pipeline theo quyết định hiện tại.
@@ -222,16 +225,16 @@ SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
 
 Script trả non-zero nếu sai bất kỳ tiêu chí nào: topology 3 CP + 3 worker,
-node Ready/không DiskPressure, 9 Rollout/18 pod cân bằng với max skew 1,
+node Ready/không DiskPressure, 10 Rollout/20 pod cân bằng với max skew 1,
 CNPG/Kafka/RabbitMQ/MinIO/OpenSearch, Vault/Velero, gVisor/Localhost profiles,
 frontend Helm/read-only, HTTP+HTTPS Gateway, RBAC, Kyverno/Gatekeeper,
 kube-bench/runtime detector và không còn controller legacy. Có thể đổi topology bằng `EXPECTED_READY_NODES`,
 `EXPECTED_CONTROL_PLANES`, `EXPECTED_WORKERS` khi join thêm node.
 
 `EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu release.
-Verifier yêu cầu 14 pod Django compatibility và hai frontend pod mang đúng
-annotation `aims.hust.vn/source-revision`; `notification-service` và
-`inventory-service` có revision độc lập qua hai biến tương ứng ở trên.
+Verifier yêu cầu cả 20 pod microservice và hai frontend pod mang đúng annotation
+`aims.hust.vn/source-revision`; hai biến revision riêng notification/inventory
+được giữ để tương thích với quy trình audit các release trước.
 
 Nếu external Sentinel validation bật binding
 `sentinel-experiment-resource-lock`, verifier ghi riêng bốn controller đo tải là
@@ -284,11 +287,20 @@ validation `production-post-reboot-recovery-20260811` sau đó `Completed` trong
 khoảng 6 phút: 1.730/1.730 object, 43/43 PodVolumeBackup, 0 error. Năm warning
 chỉ là volume khai báo nhưng không mount của Redis/waypoint.
 
-Restore drill metadata cô lập, mặc định lấy backup nghiệm thu và chỉ phục hồi
-ConfigMap vào namespace tạm `production-drill`:
+Ngày 12/09/2026, ba daily backup bị `PartiallyFailed` do PID RabbitMQ nằm trong
+PVC Mnesia và một replica gặp `EIO`. `RABBITMQ_PID_FILE` đã chuyển sang emptyDir
+`/operator`; PVC của đúng replica hỏng, không giữ queue/message, được tái tạo sau
+khi kiểm tra quorum. RabbitMQ trở lại 3/3 Khepri voter. Full backup
+`production-rabbit-fix-20260912135805` hoàn tất 1.158/1.158 object, 32/32
+PodVolumeBackup (gồm cả ba RabbitMQ PVC), 0 error. Restore drill
+`aims-config-drill-20260912140426` hoàn tất 12 ConfigMap và xác nhận không phục
+hồi Pod/Secret/PVC/controller.
+
+Restore drill metadata cô lập chỉ phục hồi ConfigMap vào namespace tạm
+`production-drill`; nên truyền rõ backup `Completed` mới nhất:
 
 ```bash
-scripts/velero-config-restore-drill.sh
+BACKUP_NAME=<completed-backup> scripts/velero-config-restore-drill.sh
 ```
 
 Script từ chối namespace có sẵn/namespace hệ thống, đặt PSA Restricted, loại

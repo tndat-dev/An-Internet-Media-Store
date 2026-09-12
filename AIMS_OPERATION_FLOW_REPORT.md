@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 10/09/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 12/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
@@ -36,7 +36,7 @@ flowchart TB
     U[Trình duyệt / API client] -->|HTTP 31088 hoặc HTTPS 32725| IG[Istio Gateway API<br/>aims-ingress]
     IG --> RT[HTTPRoute aims-web]
     RT --> FE[Frontend x2]
-    RT --> API[9 Service / 18 pod<br/>Argo Rollouts]
+    RT --> API[10 Service / 20 pod<br/>Argo Rollouts]
 
     subgraph Ambient[Istio Ambient]
       Z[ztunnel trên 6 node<br/>HBONE + mTLS]
@@ -130,6 +130,7 @@ client cần import CA hoặc dùng `curl -k` khi kiểm thử.
 | `/api/payments/` | `payment-service:8000` |
 | `/api/inventory/` | `inventory-service:8000` |
 | `/api/notifications/` | `notification-service:8000` |
+| `/api/search/`, `/api/recommendations/` | `search-recommendation-service:8000` |
 | `/api/security/` | `security-telemetry-service:8000` |
 | `/api/` còn lại | `api-gateway:8000` |
 | `/` còn lại | `aims-frontend:3000` |
@@ -258,20 +259,19 @@ sequenceDiagram
     ORD-->>FE: trạng thái đơn hàng
 ```
 
-Source ứng dụng hiện là Django modular monolith. Chín Rollout dùng cùng image
-backend nhưng có ServiceAccount, Service, lifecycle, placement và biến
-`AIMS_SERVICE_NAME` riêng. Gateway tách path theo domain để mô phỏng biên
-microservice và cho phép rollout/policy/telemetry độc lập. Các domain đã có API
-trong source là auth, catalog, cart, order và payment; inventory, notification
-và security telemetry hiện chủ yếu là topology/integration seam của lab.
+Source ứng dụng hiện có 10 FastAPI microservice độc lập. Mỗi service có source,
+dependency, Dockerfile, test, ServiceAccount, Service, Argo Rollout và image GHCR
+pin digest riêng. API Gateway là façade/routing, không truy cập bảng của domain
+khác. Bảy domain stateful sở hữu bảy PostgreSQL schema riêng; Keycloak sở hữu
+identity của auth-service.
 
-Điểm này quan trọng: hạ tầng Kafka/RabbitMQ đã chạy và endpoint đã được inject
-vào mọi pod, nhưng source Django hiện chưa có publisher/consumer thực sự dùng
-các biến `KAFKA_*` hoặc `RABBITMQ_*`. Vì vậy không tuyên bố giao dịch hiện tại
-đã event-driven end-to-end. Luồng mục 5.2 là thiết kế đích có sẵn backbone để
-phát triển tiếp, còn luồng mục 5.1 là hành vi ứng dụng đã có trong code.
+Kafka/RabbitMQ đã được business code sử dụng thật. Order ghi transactional
+outbox và phát `OrderCreated`; inventory consume idempotent, giữ hàng rồi phát
+`InventoryReserved`/`InventoryRejected`; payment consume event, tạo task có ack
+trên RabbitMQ và phát `PaymentCompleted`; notification consume event/task. Luồng
+đã được kiểm tra end-to-end trên release ký số, không còn chỉ là integration seam.
 
-### 5.2 Luồng event/task đích trên backbone đã triển khai
+### 5.2 Luồng event/task đang chạy trên backbone
 
 ```mermaid
 flowchart LR
@@ -294,7 +294,7 @@ flowchart LR
 Kafka giữ business event lâu, có partition/offset và replay; RabbitMQ điều phối
 task cần ack, retry và DLQ. Không dùng Kafka thay task queue và không dùng
 RabbitMQ làm immutable event log. Strimzi chạy KRaft ba dual-role node, không có
-ZooKeeper; topic `aims-business-events` và `aims-security-telemetry` có
+ZooKeeper; các topic business versioned và `aims-security-telemetry` có
 replication factor 3.
 
 ## 6. Luồng identity, secret và PKI
@@ -369,8 +369,9 @@ flowchart LR
 ```
 
 Workflow `.github/workflows/aims-supply-chain.yml` thực hiện
-`test → build → scan → SBOM/provenance → sign/attest → verify → GitOps` cho bốn
-image. SBOM CycloneDX và SLSA provenance v1 được ký thành in-toto attestation;
+`test → build → scan → SBOM/provenance → sign/attest → verify → GitOps` cho
+frontend/backend tương thích và 10 image microservice. SBOM CycloneDX và SLSA
+provenance v1 được ký thành in-toto attestation;
 Cosign keyless ràng buộc certificate với GitHub Actions OIDC identity và ghi
 Rekor. Bản Syft đầy đủ được giữ làm CI artifact, còn predicate CycloneDX rút gọn
 giữ component/hash/PURL để không vượt giới hạn context 2 MiB của Kyverno.
@@ -389,23 +390,15 @@ vào `production`. Pipeline as code là `Jenkinsfile`: test trước, sau đó k
 cấp registry/Cosign/GitOps credential ngắn hạn mới bật build/scan/sign và tạo
 GitOps change. Argo CD vẫn là thành phần duy nhất reconcile manifest xuống cụm.
 
-`notification-service` là lát cắt đầu tiên tách thật khỏi Django monolith.
-Nó có image/source/test riêng, chạy gVisor và consume
-`aims.business.payment.completed.v1` bằng group
-`aims-notification-service.v1`. TLS client certificate lấy từ KafkaUser
-`aims-services`; CA xác minh broker lấy riêng từ
-`aims-kafka-cluster-ca-cert`. Native TLS Kafka dùng listener `9093`; Ambient
-chỉ mở `PeerAuthentication PERMISSIVE` tại port này, còn Strimzi client TLS và
-Kafka ACL vẫn bắt buộc. Event smoke `PaymentCompleted` đã được producer publish
-và consumer xử lý thành công.
-
-`inventory-service` là lát cắt độc lập thứ hai: FastAPI + schema PostgreSQL
-`inventory_service`, Kafka group `aims.inventory-service.v1`, manual offset
-commit, bảng idempotency và transactional outbox. `OrderCreated` dẫn tới
-`InventoryReserved` hoặc `InventoryRejected`. Smoke test live chứng minh một
-event trừ tồn kho đúng một lần và duplicate cùng `eventId` không tạo side effect
-lặp. Bảy Rollout còn lại vẫn là compatibility workload của Django; search &
-recommendation là service đích thứ 10 nhưng chưa chạy live.
+Cả 10 service đã hoàn tất extraction. Notification consume
+`aims.business.payment.completed.v1` bằng group riêng; inventory dùng manual
+offset commit, bảng idempotency và transactional outbox. Order/payment nối chuỗi
+event business; search-recommendation có index/interaction riêng; security
+telemetry consume `aims-security-telemetry`, lưu PostgreSQL và chạy
+IsolationForest với history dùng chung giữa hai replica. TLS client certificate
+lấy từ KafkaUser `aims-services`; CA broker lấy từ
+`aims-kafka-cluster-ca-cert`. Native TLS Kafka dùng listener `9093`; ngoại lệ
+Ambient chỉ theo đúng port, còn Strimzi client TLS và Kafka ACL vẫn bắt buộc.
 
 ## 9. Luồng backup và phục hồi
 
@@ -421,18 +414,21 @@ flowchart LR
 
 Lịch `production-daily` backup namespace `production`, TTL 720 giờ. PVC MinIO
 đích bị loại khỏi Kopia để tránh vòng lặp “backup bucket vào chính bucket”;
-object Kubernetes của Tenant vẫn được lưu. Backup nghiệm thu
-`production-post-reboot-recovery-20260811` đã `Completed`: 1.730/1.730 object,
-43/43 PodVolumeBackup, 0 error và 5 warning vô hại do volume khai báo nhưng
-không mount. Restore drill mặc định chỉ phục hồi ConfigMap vào namespace tạm,
-không đụng Secret/PVC/workload production.
+object Kubernetes của Tenant vẫn được lưu. Backup filesystem nghiệm thu mới nhất
+`production-rabbit-fix-20260912135805` đã `Completed`: 1.158/1.158 object,
+32/32 PodVolumeBackup (gồm đủ ba PVC RabbitMQ), 0 error. Năm warning là volume
+khai báo nhưng không mount của Redis/waypoint. Restore drill
+`aims-config-drill-20260912140426` phục hồi 12 ConfigMap vào namespace tạm,
+xác nhận 0 Pod/Secret/PVC/controller rồi xóa namespace; production không bị
+thay đổi.
 
 ## 10. Hardening và thực hành CKS
 
 Mỗi pod ứng dụng chạy non-root, read-only root filesystem, drop toàn bộ Linux
-capability, cấm privilege escalation và dùng seccomp. Payment/notification dùng
-`RuntimeClass/sandbox` (gVisor); security telemetry dùng Localhost seccomp cùng
-Localhost AppArmor. PSA `restricted:latest` Enforce cho production. Kyverno và
+capability, cấm privilege escalation và dùng seccomp. Security telemetry dùng
+Localhost seccomp cùng Localhost AppArmor. AIMS dùng `runc` để tương thích
+Cilium/Istio Ambient; gVisor được chứng minh bằng smoke workload tách biệt trong
+`cks-lab`. PSA `restricted:latest` Enforce cho production. Kyverno và
 Gatekeeper chặn cấu hình runtime yếu; Cilium NetworkPolicy và Istio STRICT bảo
 vệ network; audit logging ghi mutation/RBAC/policy nhưng không ghi body Secret.
 
@@ -445,8 +441,8 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Hạng mục | Trạng thái chốt |
 |---|---|
 | Node | 6/6 Ready, 3 control-plane + 3 worker |
-| AIMS | 9/9 Rollout, 18/18 pod backend, 2/2 frontend |
-| Phân bố backend | worker1/worker3/worker4 = 6/6/6 |
+| AIMS | 10/10 Rollout, 20/20 pod microservice, 2/2 frontend |
+| Phân bố microservice | worker1/worker3/worker4 = 6/7/7 |
 | CloudNativePG | 3/3, healthy |
 | Kafka KRaft | Ready, 3 broker trên ba worker |
 | RabbitMQ | 3/3, `AllReplicasReady=True` |
@@ -457,10 +453,11 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Istio Ambient | ztunnel 6/6, waypoint Ready, mTLS STRICT |
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
-| Argo CD | `Synced/Healthy`, GitOps revision được audit trước mỗi lần nghiệm thu |
-| Source runtime | 14 Django compatibility pod + 2 notification + 2 inventory độc lập + 2 frontend |
+| Argo CD | `Synced/Healthy`, revision `1330df6a7a0590763703e4de24df780bd62a391b` tại lần audit này |
+| Source runtime | 20 pod từ 10 image service độc lập + 2 frontend, cùng source revision |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
+| Velero/DR | backup 1.158/1.158, 32/32 PVB; restore drill 12 ConfigMap, cô lập và cleanup |
 
 ## 12. Quy trình đồng bộ và kiểm chứng
 
@@ -498,13 +495,12 @@ snapshot K8s chỉ phục vụ reconcile/audit trên control-plane.
 cd /home/dat/aims-deploy-20260729
 EXPECTED_REVISION="$(kubectl -n argocd get application aims-production \
   -o jsonpath='{.status.sync.revision}')" \
-EXPECTED_SOURCE_REVISION=78291a9ae9156a2499cad1d9de81f5320eca17cf \
-EXPECTED_NOTIFICATION_SOURCE_REVISION=3e6dbc8b5397528fa6d2e86d8e54f5dd5e0ade9f \
+EXPECTED_SOURCE_REVISION=d62f093f068053b8afe92a3255f70eced89d3478 \
   scripts/audit-live-sync.sh
 ```
 
 Script kiểm tra node Ready/DiskPressure, mọi pod/container, Job hiện đang fail,
-PVC, Argo sync/health/revision, chín Rollout, các operator stateful, Longhorn và
+PVC, Argo sync/health/revision, 10 Rollout, các operator stateful, Longhorn và
 chạy tiếp hai verifier AIMS/CKS. Để xem diff server-side mà không apply:
 
 ```bash
@@ -533,11 +529,11 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
   self-signed và MinIO backup cùng failure domain với cluster.
 - Keycloak đã phục vụ OIDC ứng dụng, nhưng kube-apiserver chưa hoàn tất OIDC cho
   `kubectl`.
-- GitLab Runner/Registry/OIDC thật không chạy trong cụm; pipeline đã có code
-  nhưng cần import/mirror repository và cấp masked credential để chạy end-to-end.
-- Mới `notification-service` là codebase/image độc lập; 8 domain còn lại đang
-  compatibility mode và phải chuyển dần qua database ownership, outbox và
-  contract Kafka, không copy Django image rồi đổi tên workload.
+- Jenkins là lab CI dự phòng và chưa có credential registry dài hạn; GitHub
+  Actions/GHCR là chuỗi CI phát hành chính đã chạy end-to-end.
+- PostgreSQL dùng chung một CNPG cluster để tiết kiệm tài nguyên lab, dù schema
+  ownership đã tách. Production enterprise có thể tách cluster theo failure
+  domain/nhu cầu scale của từng service.
 - SLSA provenance tự sinh trong job chỉ được tuyên bố tương thích Build L1;
   mức L2/L3 cần builder độc lập/hardened sinh provenance.
 - Backup MinIO cần replication/off-cluster nếu muốn chống mất toàn cụm.

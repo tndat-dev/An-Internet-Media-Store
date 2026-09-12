@@ -3,7 +3,7 @@
 **Đơn vị học phần:** HUST – ISD.20252-18  
 **Dự án:** AIMS (An Internet Media Store)  
 **Môi trường:** `production` trên cụm kubeadm on-premise  
-**Ngày cập nhật gần nhất:** 10/09/2026 (UTC+7)
+**Ngày cập nhật gần nhất:** 12/09/2026 (UTC+7)
 
 **Repository làm việc:** `/home/tndat/An-Internet-Media-Store`
 
@@ -16,19 +16,19 @@
 ## 1. Tóm tắt kết quả
 
 AIMS được triển khai theo mô hình production-like, gồm ba control-plane và ba
-worker, container runtime là containerd. Tầng ứng dụng được tách thành chín
-Argo Rollout, mỗi service có hai replica và cập nhật canary. Dữ liệu quan hệ đã
-được chuyển từ PostgreSQL StatefulSet cũ sang CloudNativePG ba instance. Redis,
-Kafka KRaft, RabbitMQ, MinIO và OpenSearch đều được operator quản lý.
+worker, container runtime là containerd. Tầng ứng dụng có 10 microservice độc
+lập, mỗi service có source/dependency/Dockerfile/test/image riêng và chạy hai
+replica bằng Argo Rollout canary. Dữ liệu quan hệ dùng CloudNativePG ba instance;
+bảy service stateful sở hữu schema riêng. Redis, Kafka KRaft, RabbitMQ, MinIO và
+OpenSearch đều được operator quản lý.
 
 Các lớp bảo mật chính đã được triển khai gồm Cilium NetworkPolicy, Istio
 Ambient mTLS STRICT, Kyverno, Gatekeeper, seccomp, AppArmor, gVisor RuntimeClass,
 Tetragon, Falco, Trivy Operator, Vault và External Secrets. Chuỗi cung ứng chạy
 thật bằng GitHub Actions với Trivy, Syft và Cosign keyless; GitOps dùng Argo CD và
 progressive delivery dùng Argo Rollouts. Backup Velero chạy hằng ngày vào bucket
-MinIO. Backup phục hồi cuối phiên `production-recovery-20260801-042048` đã hoàn
-tất 1.360/1.360 item, 0 error và 8 warning; BackupStorageLocation ở trạng thái
-`Available`.
+MinIO; backup filesystem và restore drill cô lập được nghiệm thu lại sau mỗi sửa
+đổi storage. `BackupStorageLocation/default` ở trạng thái `Available`.
 
 Trong phiên nghiệm thu ngày 01/08/2026, cụm đã bị thay đổi topology so với phiên
 triển khai ban đầu. Ba filesystem Longhorn bị lỗi metadata ext4, một Kafka volume
@@ -63,7 +63,7 @@ flowchart TB
   U[Client / kubectl OIDC] --> IG[Istio Ingress]
   IG --> W[Ambient Waypoint]
   W --> GW[api-gateway]
-  GW --> MS[8 domain services]
+  GW --> MS[9 domain services]
 
   subgraph CP[3 control-plane]
     API[kube-apiserver]
@@ -73,7 +73,7 @@ flowchart TB
 
   subgraph WK[3 worker]
     ZT[ztunnel per node]
-    APP[9 services x 2 replicas]
+    APP[10 services x 2 replicas]
     DATA[CNPG / Redis / Kafka / RabbitMQ / MinIO]
   end
 
@@ -142,9 +142,10 @@ Các cơ chế bổ sung cho nhau:
 - `capabilities.drop: [ALL]` loại capability Linux kế thừa không cần thiết.
 - `allowPrivilegeEscalation: false`, `runAsNonRoot: true` và UID/GID 10001 giảm
   khả năng escape/lateral movement.
-- gVisor chèn user-space kernel (`runsc`) giữa ứng dụng và host kernel. Payment
-  và notification chạy bằng RuntimeClass `sandbox` vì đây là hai luồng xử lý dữ
-  liệu nhạy cảm và message không tin cậy.
+- gVisor chèn user-space kernel (`runsc`) giữa ứng dụng và host kernel. Cụm giữ
+  một workload smoke riêng trong `cks-lab` để thực hành sandbox. Pod AIMS chạy
+  `runc` vì gVisor không tương thích ổn định với Cilium/Istio Ambient interception
+  trong topology lab hiện tại.
 
 gVisor tăng isolation nhưng có overhead syscall/I/O, do đó không áp dụng đại trà
 cho database hoặc Kafka.
@@ -278,60 +279,50 @@ restore. Một chiến lược DR đúng cần cả hai và phải kiểm thử 
 
 | Service | Trách nhiệm | State/queue chính | Runtime |
 |---|---|---|---|
-| `api-gateway` | entry point API, routing tổng | Redis | runc |
-| `auth-service` | đăng nhập, token/profile | PostgreSQL, Keycloak | runc |
-| `catalog-service` | media/product catalog | PostgreSQL, Redis | runc |
-| `cart-service` | giỏ hàng | Redis, PostgreSQL | runc |
+| `api-gateway` | entry point API, routing tổng | HTTP service discovery | runc |
+| `auth-service` | đăng nhập, token/profile | Keycloak | runc |
+| `catalog-service` | media/product catalog | PostgreSQL | runc |
+| `cart-service` | giỏ hàng | PostgreSQL, Catalog HTTP | runc |
 | `order-service` | order lifecycle | PostgreSQL, Kafka | runc |
-| `payment-service` | payment orchestration | RabbitMQ, PostgreSQL | gVisor |
+| `payment-service` | payment orchestration | RabbitMQ, PostgreSQL | runc |
 | `inventory-service` | tồn kho/reservation | PostgreSQL, Kafka | runc |
-| `notification-service` | email/webhook task | RabbitMQ + DLQ | gVisor |
+| `notification-service` | email/webhook task | RabbitMQ + DLQ | runc |
+| `search-recommendation-service` | tìm kiếm và gợi ý | PostgreSQL, Kafka | runc |
 | `security-telemetry-service` | runtime/audit/ML feature | Kafka, OpenSearch | Localhost seccomp + AppArmor |
 
-Mỗi service hiện là một process/deployment độc lập nhưng cùng dùng image Django
-`aims-backend:prod-sim`. Đây là bước tách deployment boundary, chưa phải tách
-codebase/database schema hoàn toàn. Production thật cần image/digest, API contract
-và ownership database riêng cho từng service.
+Mười service là 10 process/deployment và 10 image GHCR độc lập được pin bằng
+digest. API Gateway chỉ làm routing/facade; service không còn truy vấn ORM của
+domain khác. Giao dịch xuyên service dùng HTTP contract, Kafka event versioned,
+transactional outbox/idempotent consumer và RabbitMQ task ack/DLQ. PostgreSQL
+vẫn là một CNPG cluster dùng chung hạ tầng cho lab, nhưng schema ownership được
+tách theo service để giữ ranh giới dữ liệu.
 
 ## 5. Cấu trúc mã triển khai
 
 ```text
-Programming/
-├── .gitlab-ci.yml
-├── backend/Dockerfile
-├── frontend/Dockerfile
-└── k8s/
-    ├── aims-chart/
-    │   ├── Chart.yaml
-    │   ├── values.yaml
-    │   └── templates/{services,frontend,routing}.yaml
-    ├── cks-lab/{README.md,00-lab-guardrails.yaml}
-    ├── node-profiles/
-    │   ├── aims-runtime.json
-    │   └── aims-restricted.apparmor
-    ├── platform/
-    │   ├── 00-namespace.yaml
-    │   ├── 00-foundation.yaml
-    │   ├── 10-data-messaging.yaml
-    │   ├── 15-external-secrets.yaml
-    │   ├── 20-policy-security.yaml
-    │   ├── 21-gatekeeper-constraint.yaml
-    │   ├── 22-supply-chain-policy.yaml
-    │   ├── 25-kube-bench.yaml
-    │   ├── 30-observability.yaml
-    │   ├── 40-production-enforcement.yaml
-    │   ├── 50-backup.yaml
-    │   ├── 60-backup-schedule.yaml
-    │   └── *-values.yaml
-    └── scripts/
-        ├── configure-gvisor-worker.sh
-        ├── configure-small-disk-worker.sh
-        ├── install-node-security-profiles.sh
-        ├── cleanup-production-legacy.sh
-        ├── verify-aims.sh
-        ├── verify-cks-lab.sh
-        ├── velero-config-restore-drill.sh
-        └── velero-smoke-backup.sh
+.
+├── .github/workflows/aims-supply-chain.yml
+├── contracts/asyncapi/aims-events.yaml
+├── services/
+│   ├── api-gateway/                 # mỗi thư mục có app, test, requirements, Dockerfile
+│   ├── auth-service/
+│   ├── catalog-service/
+│   ├── cart-service/
+│   ├── order-service/
+│   ├── payment-service/
+│   ├── inventory-service/
+│   ├── notification-service/
+│   ├── search-recommendation-service/
+│   └── security-telemetry-service/
+└── Programming/
+    ├── backend/                     # artifact tương thích/migration
+    ├── frontend/
+    └── k8s/
+        ├── aims-chart/              # 10 Rollout + frontend + Gateway API
+        ├── cks-lab/
+        ├── node-profiles/
+        ├── platform/                # data, policy, observability, backup, GitOps
+        └── scripts/                 # reconcile, audit, verifier và restore drill
 ```
 
 ## 6. Quy trình triển khai thực tế
@@ -437,7 +428,7 @@ kubectl get rollout -n production -w
 
 Pod có aggregate topology spread theo hostname và preferred anti-affinity theo
 tên service. `maxSurge=1` cho phép một pod canary thứ ba tạm thời; quota CPU limit
-50 core bao gồm phần surge của chín Rollout chạy đồng thời.
+50 core bao gồm phần surge của 10 Rollout chạy đồng thời.
 
 ### 6.7 Observability và security search
 
@@ -663,9 +654,8 @@ kubectl -n falco get ds falco
 # mTLS STRICT
 kubectl -n production get peerauthentication production-strict -o yaml
 
-# gVisor
-kubectl -n production get pod -l app.kubernetes.io/name=payment-service \
-  -o jsonpath='{range .items[*]}{.metadata.name}{" runtime="}{.spec.runtimeClassName}{"\n"}{end}'
+# gVisor smoke tách khỏi Ambient production
+kubectl -n cks-lab get deployment gvisor-sandbox-smoke -o wide
 
 # Localhost seccomp/AppArmor
 kubectl -n production get pod -l app.kubernetes.io/name=security-telemetry-service \
@@ -712,11 +702,11 @@ preference. Request hiện tại mỗi service pod là 100m CPU/192 MiB; limit l
 - limit memory: 64 GiB;
 - tối đa 30 PVC.
 
-Kết quả thực tế: 18 microservice pod phân bố worker1/worker3/worker4 = 6/6/6;
+Kết quả hiện hành: 20 microservice pod phân bố worker1/worker3/worker4 = 6/7/7;
 CNPG và Kafka đều có đúng một replica trên mỗi worker. Worker1 đã có root 300
 GiB và eviction reserve 10%, không còn ngoại lệ 5%.
 
-Không đánh giá cân bằng chỉ bằng số pod: database và broker nặng hơn pod Django.
+Không đánh giá cân bằng chỉ bằng số pod: database và broker nặng hơn pod API.
 Nên theo dõi `kubectl top nodes`, CPU request, memory working set, IOPS và số
 Longhorn replica. Descheduler chỉ nên dùng sau khi PDB/anti-affinity đã đúng.
 
@@ -1190,6 +1180,50 @@ dùng chung Django backend. `search-recommendation-service` là service thứ 10
 trong kiến trúc đích nhưng chưa được đưa vào live; báo cáo không coi việc tách
 microservice là hoàn tất cho đến khi các domain còn lại bỏ truy vấn ORM chéo.
 
+### 14.17 Hoàn tất 10 microservice và nghiệm thu release ngày 12/09/2026
+
+Mốc 14.15–14.16 phía trên là lịch sử chuyển đổi từng lát cắt. Trạng thái hiện
+hành đã hoàn tất cả 10 service độc lập: `api-gateway`, `auth`, `catalog`, `cart`,
+`order`, `payment`, `inventory`, `notification`, `search-recommendation` và
+`security-telemetry`. Mỗi service có source/dependency/Dockerfile/test/image
+riêng. Workflow GitHub Actions build frontend/backend tương thích cùng 10 image,
+quét Trivy, sinh Syft CycloneDX, ký Cosign keyless, attest SLSA v1 + SBOM, tự
+verify rồi mới commit digest cho Argo CD.
+
+Release source `d62f093f068053b8afe92a3255f70eced89d3478` đã chạy 10/10
+Rollout, 20/20 replica và hai frontend. E2E live đã chứng minh đăng ký/đổi mật
+khẩu/login qua Keycloak, catalog → cart → order → inventory reservation qua
+Kafka → payment → notification qua RabbitMQ, tìm kiếm/gợi ý và phát hiện anomaly
+bằng IsolationForest. Bảy schema được sở hữu riêng: `cart_service`,
+`catalog_service`, `inventory_service`, `order_service`, `payment_service`,
+`search_recommendation_service` và `security_telemetry_service`.
+
+gVisor `runsc` vẫn được cài và smoke-test trong namespace `cks-lab`, nhưng 20 pod
+AIMS dùng `runc`: node-level interception của Cilium/Istio Ambient không ổn định
+với network stack gVisor trong cụm này. Đây là quyết định tương thích có kiểm
+chứng, không phải bỏ bài thực hành sandbox. Security telemetry tiếp tục dùng
+Localhost seccomp và AppArmor; mọi container drop `ALL`, root filesystem chỉ đọc
+và chạy non-root.
+
+Trong lần kiểm tra DR, ba daily backup gần nhất bị `PartiallyFailed` vì Kopia đọc
+file PID RabbitMQ nằm nhầm trong PVC Mnesia và gặp block I/O hỏng trên replica
+`server-1`. Manifest đã chuyển `RABBITMQ_PID_FILE` sang emptyDir `/operator`,
+loại các emptyDir khỏi volume backup. Replica hỏng không giữ queue/message nên
+PVC của riêng replica đó được tái tạo; RabbitMQ join lại đủ ba Khepri voter rồi
+rolling update tuần tự 3/3. Hai queue `payment.tasks` và `notification.tasks`
+trở lại `running`, không mất message. Backup
+`production-rabbit-fix-20260912135805` sau đó `Completed` 1.158/1.158 object,
+32/32 PodVolumeBackup gồm đủ ba RabbitMQ PVC và 0 error. Restore drill
+`aims-config-drill-20260912140426` phục hồi 12 ConfigMap, 0 Pod/Secret/PVC/
+controller vào namespace cô lập rồi cleanup thành công.
+
+Audit cuối tại GitOps revision
+`1330df6a7a0590763703e4de24df780bd62a391b` đạt toàn bộ assertion: 6/6 node
+Ready, không DiskPressure, 0 pod non-ready/Unknown, 0 Job failed, 0 PVC unbound,
+29/29 Longhorn volume healthy, Argo CD `Synced/Healthy`, Gateway HTTP/HTTPS
+6/6 mẫu, Trivy không còn Job/Pending scan lỗi, policy report 0 fail và 0 warn.
+`audit-live-sync.sh`, `verify-aims.sh` và `verify-cks-lab.sh` đều exit 0.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,
@@ -1200,5 +1234,7 @@ mTLS STRICT với probe, Vault với ESO, operator với PSA, Kafka với Rabbit
 đúng semantics, và Longhorn snapshot trước filesystem recovery.
 
 Hệ thống phù hợp cho lab CKA/CKS và demo production-like của AIMS. Để gọi là
-production hoàn chỉnh cần xử lý các giới hạn ở mục 12, đặc biệt storage
-isolation, OIDC HTTPS, image registry/digest đáng tin và restore drill định kỳ.
+production enterprise cần xử lý các giới hạn ở mục 12, đặc biệt storage/backup
+off-cluster, OIDC HTTPS cho Kubernetes, per-service Kafka identity, schema
+registry và TLS production cho Keycloak/OpenSearch. Trong phạm vi lab, kiến trúc
+10 microservice, CI supply chain, GitOps, security và DR đã được nghiệm thu.

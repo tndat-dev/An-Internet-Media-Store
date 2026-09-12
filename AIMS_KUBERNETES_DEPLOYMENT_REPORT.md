@@ -4,7 +4,7 @@
 **Học phần/nhóm:** ISD.20252-18  
 **Môi trường:** cụm kubeadm tại mạng `10.1.16.0/24`  
 **Namespace ứng dụng:** `production`  
-**Ngày chốt báo cáo:** 03/08/2026
+**Ngày chốt báo cáo:** 12/09/2026
 **Mã nguồn và Infrastructure as Code:** `Programming/k8s/`
 
 > Báo cáo không ghi mật khẩu, token, private key hoặc giá trị Secret. Các bí mật
@@ -19,12 +19,12 @@ Phạm vi gồm:
 
 - cụm Kubernetes kubeadm HA sử dụng containerd;
 - Cilium, Istio Ambient và mTLS STRICT;
-- 9 workload microservice dưới dạng Argo Rollout;
+- 10 microservice độc lập dưới dạng Argo Rollout;
 - PostgreSQL, Redis, Kafka, RabbitMQ, MinIO và Longhorn;
 - Vault, External Secrets, cert-manager và Keycloak;
 - Kyverno, Gatekeeper, Trivy, Tetragon và Falco;
 - Prometheus/Grafana, Loki, Tempo, OpenTelemetry và OpenSearch;
-- pipeline GitLab CI, Argo CD, Argo Rollouts, Syft, Cosign và Rekor;
+- GitHub Actions CI, Argo CD, Argo Rollouts, Syft, Cosign và Rekor;
 - backup namespace `production` bằng Velero vào MinIO;
 - tài liệu vận hành, kiểm tra và xử lý sự cố thực tế.
 
@@ -48,8 +48,8 @@ khôi phục đúng quorum 3 control-plane; địa chỉ `.238` hiện là worke
 
 ### 2.2 Trạng thái ứng dụng
 
-- 9 Argo Rollout, mỗi service 2 replica: tổng 18 pod Ready.
-- Phân bố workload microservice cuối: 6 pod/worker, tức `6–6–6`.
+- 10 Argo Rollout, mỗi service 2 replica: tổng 20 pod Ready.
+- Phân bố workload microservice cuối: `6–7–7`, max skew bằng 1.
 - PostgreSQL CNPG: 3/3 instance, một instance trên mỗi worker.
 - Kafka KRaft: 3/3 broker/controller, một pod trên mỗi worker.
 - RabbitMQ: 3/3, Redis: 3 replica kèm 3 Sentinel.
@@ -67,7 +67,7 @@ flowchart TB
   IG --> WP[Ambient Waypoint]
   WP --> API[API Gateway]
 
-  subgraph APP[production - 9 microservices]
+  subgraph APP[production - 10 microservices]
     API --> AUTH[Auth]
     API --> CAT[Catalog]
     API --> CART[Cart]
@@ -75,6 +75,7 @@ flowchart TB
     API --> PAY[Payment]
     API --> INV[Inventory]
     API --> NOTI[Notification]
+    API --> SEARCH[Search & Recommendation]
     SEC[Security Telemetry]
   end
 
@@ -109,16 +110,17 @@ flowchart TB
 | `catalog-service` | sản phẩm, media metadata | PostgreSQL | Kafka business | read-only theo lộ trình |
 | `cart-service` | giỏ hàng | Redis/PostgreSQL | Kafka | cache + mTLS |
 | `order-service` | vòng đời đơn hàng | PostgreSQL | Kafka business | canary |
-| `payment-service` | điều phối thanh toán | PostgreSQL | RabbitMQ ack/DLQ + Kafka | gVisor `sandbox` |
+| `payment-service` | điều phối thanh toán | PostgreSQL | RabbitMQ ack/DLQ + Kafka | runc + seccomp |
 | `inventory-service` | tồn kho/reservation | PostgreSQL | Kafka | idempotency cần bảo đảm |
-| `notification-service` | email/thông báo | PostgreSQL | RabbitMQ ack/DLQ | gVisor `sandbox` |
+| `notification-service` | email/thông báo | PostgreSQL | RabbitMQ ack/DLQ | runc + seccomp |
+| `search-recommendation-service` | tìm kiếm/gợi ý | PostgreSQL | Kafka interaction | read-only rootfs |
 | `security-telemetry-service` | audit, feature/model anomaly | OpenSearch/Kafka | Kafka security topic | Localhost seccomp + AppArmor |
 
-Hiện 9 service được tách ở mức Kubernetes Deployment/Rollout, Service, route,
-policy và biến môi trường, nhưng vẫn dùng chung image Django
-`aims-backend:prod-sim`. Đây là bước chuyển tiếp; chưa được coi là 9 codebase
-độc lập. Pipeline đã chuẩn bị để thay image local bằng image immutable trong
-GitLab Container Registry.
+Mười service có source, dependency, Dockerfile, test và image GHCR pin digest
+riêng. Bảy service stateful sở hữu PostgreSQL schema riêng; giao tiếp xuyên
+domain dùng HTTP contract, Kafka event versioned, outbox/idempotency và RabbitMQ
+task ack/DLQ. Backend Django cũ chỉ còn là artifact tương thích trong pipeline,
+không còn là image của 10 Rollout live.
 
 ## 4. Cơ sở lý thuyết các công nghệ
 
@@ -271,37 +273,20 @@ lớp DR khác.
 ### 5.1 Cấu trúc mã
 
 ```text
-Programming/k8s/
-├── aims-chart/                 # 9 Rollout + frontend + HTTP/HTTPS routing
-├── cks-lab/                    # CKS guardrail và runbook riêng
-├── node-profiles/              # seccomp và AppArmor Localhost
-├── platform/
-│   ├── 00-namespace.yaml
-│   ├── 00-foundation.yaml
-│   ├── 10-data-messaging.yaml
-│   ├── 15-external-secrets.yaml
-│   ├── 20-policy-security.yaml
-│   ├── 21-gatekeeper-constraint.yaml
-│   ├── 22-supply-chain-policy.yaml
-│   ├── 25-kube-bench.yaml
-│   ├── 30-observability.yaml
-│   ├── 40-production-enforcement.yaml
-│   ├── 50-backup.yaml
-│   ├── 60-backup-schedule.yaml
-│   ├── 70-recovery-snapshots.yaml
-│   └── *-values.yaml
-└── scripts/
-    ├── configure-small-disk-worker.sh
-    ├── install-node-profiles.sh
-    ├── cleanup-production-legacy.sh
-    ├── verify-aims.sh
-    ├── verify-cks-lab.sh
-    ├── velero-config-restore-drill.sh
-    └── velero-smoke-backup.sh
+.
+├── .github/workflows/aims-supply-chain.yml
+├── contracts/asyncapi/aims-events.yaml
+├── services/                     # 10 FastAPI service độc lập
+└── Programming/k8s/
+    ├── aims-chart/               # 10 Rollout + frontend + HTTP/HTTPS routing
+    ├── cks-lab/                  # CKS guardrail + gVisor smoke
+    ├── node-profiles/            # seccomp và AppArmor Localhost
+    ├── platform/                 # foundation/data/policy/observability/backup
+    └── scripts/                  # reconcile/audit/verify/backup/restore
 ```
 
-`Programming/.gitlab-ci.yml` chứa pipeline; Dockerfile backend/frontend nằm
-ngay trong từng thư mục ứng dụng.
+`.github/workflows/aims-supply-chain.yml` là pipeline phát hành chính; mỗi service
+và frontend/backend tương thích có Dockerfile ngay trong thư mục của mình.
 
 ### 5.2 Thứ tự triển khai khuyến nghị
 
@@ -586,12 +571,13 @@ kubectl -n production get rollouts.argoproj.io
 kubectl -n argocd get application aims-production
 kubectl -n production get pods \
   -l aims.hust.vn/workload-group=microservices -o wide
-kubectl -n production exec deploy/api-gateway -- \
-  python manage.py check
+kubectl -n production get pods \
+  -l aims.hust.vn/workload-group=microservices \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" source="}{.metadata.annotations.aims\.hust\.vn/source-revision}{"\n"}{end}'
 ```
 
-Tiêu chí: Argo CD `Synced/Healthy`, 9/9 Rollout `Healthy`, 18/18 pod Ready,
-phân bố 6–6–6.
+Tiêu chí: Argo CD `Synced/Healthy`, 10/10 Rollout `Healthy`, 20/20 pod Ready,
+phân bố 6–7–7 (max skew 1).
 Frontend do Helm quản lý có 2/2 replica Ready, non-root và rootfs chỉ đọc.
 
 ### 8.3 Data/messaging
@@ -691,19 +677,32 @@ Snapshot/dump phải có trước; stateful replica được dựng lại từng
 khỏe. Với operator native TLS/probe không đi qua sidecar, dùng ngoại lệ
 `PeerAuthentication` theo đúng port, không hạ mTLS của cả namespace.
 
+### 9.3 Nghiệm thu backup/restore ngày 12/09/2026
+
+Daily backup từng timeout bốn giờ vì Kopia đọc PID RabbitMQ trong PVC Mnesia và
+gặp `EIO`. Cấu hình mới đặt `RABBITMQ_PID_FILE=/operator/rabbitmq.pid` trên
+emptyDir, đồng thời loại emptyDir cookie/plugin khỏi filesystem backup. Replica
+RabbitMQ có block hỏng không giữ queue/message nên PVC của riêng replica đó được
+tái tạo; cluster join lại 3/3 Khepri voter trước khi rolling update tiếp tục.
+
+Backup `production-rabbit-fix-20260912135805` đạt `Completed`, 1.158/1.158
+object, 32/32 PodVolumeBackup và 0 error. Restore
+`aims-config-drill-20260912140426` phục hồi 12 ConfigMap vào namespace cô lập,
+không tạo Pod, Secret, PVC hoặc controller và cleanup namespace thành công.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |
 |---|---|---|
 | Đã xử lý | filesystem từng chỉ 40 GiB | sáu node đã mở rộng khoảng 295 GiB và không DiskPressure |
-| Cao | image AIMS hiện là image local | push GitLab Registry, dùng digest và imagePullSecret |
-| Cao | 9 service dùng chung code/image | tách boundary, schema/API và pipeline độc lập |
+| Đã xử lý | image AIMS từng là image local | GHCR digest, Cosign/SLSA/SBOM và Kyverno Enforce |
+| Đã xử lý | service từng dùng chung code/image | 10 artifact độc lập, schema/API/event ownership |
 | Cao | MinIO trong cùng cluster với nguồn backup | replicate bucket sang máy/cluster khác |
 | Trung bình | OpenSearch chart còn demo TLS | cert-manager + custom security config |
 | Đã xử lý | PSA Restricted | `production` đã Enforce, negative test bị từ chối |
 | Trung bình | Keycloak start-dev/admin bootstrap | external DB, TLS, HA và rotate bootstrap credential |
 | Đã xử lý | Argo CD repoURL | trỏ GitHub `tndat-dev/An-Internet-Media-Store`, tự sync từ `main` |
-| Trung bình | Rekor/keyless phụ thuộc GitLab OIDC/Internet | cấu hình runner và kiểm thử pipeline thực |
+| Trung bình | Rekor/keyless phụ thuộc GitHub OIDC/Internet | giữ artifact/attestation và kế hoạch mirror registry |
 | Thấp | Falco và Tetragon trùng một phần tín hiệu | phân vai rule/alert để giảm noise |
 
 ## 11. Bộ thực hành CKS
@@ -727,6 +726,7 @@ failover, DiskPressure, volume fsck và broker permission đã được xử lý
 trình có snapshot/kiểm chứng, đem lại bằng chứng vận hành thực tế thay vì chỉ có
 manifest lý thuyết.
 
-Để chuyển từ production-like sang production thật, ba ưu tiên cao nhất còn lại
-là dùng registry/digest cho image, tách 9 microservice thành artifact độc lập và
-backup off-cluster; tiếp theo là harden Keycloak/OpenSearch TLS.
+Để chuyển từ production-like sang production thật, các ưu tiên còn lại là backup
+off-cluster, tách failure domain PostgreSQL/Longhorn, và harden Keycloak/
+OpenSearch TLS. Với phạm vi lab, 10 microservice và chuỗi GitHub Actions → Argo CD
+đã đủ để chứng minh kiến trúc và vận hành end-to-end.

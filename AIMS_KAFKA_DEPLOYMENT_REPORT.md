@@ -3,7 +3,7 @@
 **Phạm vi:** Kafka làm event backbone cho business event và security telemetry  
 **Nền tảng:** Strimzi Kafka Operator, Kafka 4.3.0, KRaft  
 **Namespace:** `production`  
-**Ngày chốt:** 01/08/2026
+**Ngày chốt:** 12/09/2026
 
 Namespace `production` hiện Enforce PSA `restricted:latest`. Ba broker KRaft
 vẫn Ready sau lần reconcile chart v0.3/CKS; TLS user, ACL, RF=3 và min ISR=2
@@ -109,7 +109,11 @@ Phân bố cuối:
 
 | Topic | Partition | RF | min ISR | Retention | Mục đích |
 |---|---:|---:|---:|---:|---|
-| `aims-business-events` | 6 | 3 | 2 | 7 ngày | domain event |
+| `aims-business-events` | 6 | 3 | 2 | 7 ngày | stream tương thích/tổng hợp |
+| `aims.business.order.created.v1` | 6 | 3 | 2 | 7 ngày | order → inventory |
+| `aims.business.inventory.reserved.v1` | 6 | 3 | 2 | 7 ngày | inventory → payment |
+| `aims.business.inventory.rejected.v1` | 6 | 3 | 2 | 7 ngày | từ chối giữ hàng |
+| `aims.business.payment.completed.v1` | 6 | 3 | 2 | 7 ngày | payment → notification |
 | `aims-security-telemetry` | 6 | 3 | 2 | 14 ngày | audit/runtime/ML |
 
 Security telemetry có retention dài hơn để điều tra và huấn luyện/baseline.
@@ -192,9 +196,11 @@ Bootstrap service:
 aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
 ```
 
-Chart hiện khai báo plain listener nội bộ 9092 và TLS listener 9093. Mục tiêu
-production là chuyển application sang TLS 9093 với certificate từ KafkaUser,
-mount secret qua ESO/Secret volume và bỏ plain listener sau migration.
+Chart khai báo plain listener quản trị nội bộ 9092 và TLS listener ứng dụng 9093.
+Các producer/consumer AIMS đang dùng 9093 với certificate từ
+`KafkaUser/aims-services` và cluster CA mount qua Secret. Listener 9092 hiện chỉ
+phục vụ thao tác broker-local/admin trong lab; có thể bỏ sau khi tách KafkaUser
+quản trị riêng.
 
 Producer khuyến nghị:
 
@@ -412,23 +418,29 @@ khi chạy load thật.
 Partition count quyết định throughput/parallelism nhưng tăng quá mức làm tăng
 metadata, file handle, recovery time và controller load.
 
-## 11. Việc cần hoàn thiện
+## 11. Trạng thái ứng dụng và việc còn lại
 
-1. chuyển cả chín application workload sang listener TLS 9093 (smoke test TLS
-   đã pass) rồi bỏ plain listener;
-2. tạo KafkaUser riêng cho từng microservice;
-3. triển khai schema registry và compatibility policy;
-4. transactional outbox cho order/payment/inventory;
-5. exporter/dashboard consumer lag;
-6. MirrorMaker 2/off-cluster DR;
-7. tăng PVC theo đo đạc, không dùng 10 GiB cho production thật;
-8. cân nhắc tách 3 controller và 3+ broker khi tải tăng.
+Order, inventory, payment, notification và security-telemetry đã dùng Kafka thật
+qua TLS 9093. Order/payment/inventory dùng transactional outbox; consumer lưu
+event ID và commit offset sau side effect để bảo đảm at-least-once + idempotency.
+E2E release ngày 12/09/2026 đã quan sát `OrderCreated` làm tồn kho giảm 109→108,
+payment hoàn tất, outbox được đánh dấu published và notification nhận đúng
+`orderId`.
+
+Các bước nâng cấp ngoài phạm vi lab:
+
+1. tạo KafkaUser/ACL riêng cho từng producer và consumer;
+2. triển khai schema registry cùng compatibility policy;
+3. thêm dashboard/alert consumer lag theo group;
+4. MirrorMaker 2 hoặc cluster Kafka DR off-site;
+5. tăng PVC theo đo đạc và tách controller/broker khi tải tăng;
+6. bỏ listener plain sau khi chuyển toàn bộ lệnh admin sang TLS identity riêng.
 
 ## 12. Kết luận
 
 Kafka KRaft đã được triển khai bằng Strimzi, không cần ZooKeeper, có ba quorum
 member, RF=3, min ISR=2, ACL và hardening runtime. Cụm đã trải qua một lỗi thực
 tế do quyền volume và được phục hồi an toàn sau snapshot mà không xóa dữ liệu.
-Thiết kế đáp ứng mục tiêu event backbone của AIMS ở mức production-like; bước
-quan trọng tiếp theo là TLS-only, per-service identity, schema governance,
-outbox và DR sang Kafka cluster độc lập.
+Thiết kế đáp ứng mục tiêu event backbone của AIMS ở mức production-like và luồng
+business đã chạy end-to-end. Các ưu tiên production thật còn lại là per-service
+identity, schema governance, TLS-only và DR sang Kafka cluster độc lập.
