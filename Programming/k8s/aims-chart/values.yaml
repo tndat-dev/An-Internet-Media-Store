@@ -129,7 +129,7 @@ integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
   kafkaBusinessTopic: aims-business-events
   kafkaSecurityTopic: aims-security-telemetry
-  redisHost: aims-redis-sentinel.production.svc.cluster.local
+  redisHost: aims-redis-sentinel-sentinel.production.svc.cluster.local
   redisPort: "26379"
   rabbitmqHost: aims-rabbitmq.production.svc.cluster.local
   rabbitmqPort: "5672"
