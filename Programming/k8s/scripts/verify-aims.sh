@@ -45,21 +45,25 @@ check "Jenkins controller cannot read Secrets" "${jenkins_controller_can_read_se
 
 rollouts=$(kubectl -n production get rollouts.argoproj.io -o json)
 check "Healthy AIMS Rollouts" "$(jq '[.items[] | select(.status.phase == "Healthy" and .status.availableReplicas == .spec.replicas)] | length' <<< "$rollouts")" 10
+desired_microservice_replicas=$(jq '[.items[].spec.replicas] | add // 0' <<< "$rollouts")
+notification_replicas=$(jq '[.items[] | select(.metadata.name == "notification-service") | .spec.replicas][0] // 0' <<< "$rollouts")
+inventory_replicas=$(jq '[.items[] | select(.metadata.name == "inventory-service") | .spec.replicas][0] // 0' <<< "$rollouts")
+telemetry_replicas=$(jq '[.items[] | select(.metadata.name == "security-telemetry-service") | .spec.replicas][0] // 0' <<< "$rollouts")
 
 pods=$(kubectl -n production get pods -l aims.hust.vn/workload-group=microservices -o json)
-check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" 20
+check "Ready microservice pods" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true)] | length' <<< "$pods")" "$desired_microservice_replicas"
 
 if [[ -n "${expected_source_revision}" ]]; then
   check "Independent services source revision" \
-    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 20
+    "$(jq --arg revision "${expected_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" "$desired_microservice_replicas"
 fi
 if [[ -n "${expected_notification_source_revision}" ]]; then
   check "Notification service source revision" \
-    "$(jq --arg revision "${expected_notification_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 2
+    "$(jq --arg revision "${expected_notification_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "notification-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" "$notification_replicas"
 fi
 if [[ -n "${expected_inventory_source_revision}" ]]; then
   check "Inventory service source revision" \
-    "$(jq --arg revision "${expected_inventory_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "inventory-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" 2
+    "$(jq --arg revision "${expected_inventory_source_revision}" '[.items[] | select(.metadata.deletionTimestamp == null and .metadata.labels["app.kubernetes.io/name"] == "inventory-service" and .metadata.annotations["aims.hust.vn/source-revision"] == $revision)] | length' <<< "$pods")" "$inventory_replicas"
 fi
 
 frontend=$(kubectl -n production get deployment aims-frontend -o json)
@@ -172,12 +176,12 @@ check "Gatekeeper audit ready" "$(kubectl -n gatekeeper-system get deploy gateke
 check "Gatekeeper template created" "$(kubectl get constrainttemplate k8srequiredruntimehardening -o jsonpath='{.status.created}')" true
 check "Gatekeeper runtime enforcement" "$(kubectl get k8srequiredruntimehardening production-runtime-hardening -o jsonpath='{.spec.enforcementAction}')" deny
 
-check "Ambient-compatible microservice runtime" "$(jq '[.items[] | select(.spec.runtimeClassName == null)] | length' <<< "$pods")" 20
-check "Independent signed service images" "$(jq '[.items[] | select(.spec.containers[0].image | test("^ghcr.io/tndat-dev/aims-(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)@sha256:"))] | length' <<< "$pods")" 20
+check "Ambient-compatible microservice runtime" "$(jq '[.items[] | select(.spec.runtimeClassName == null)] | length' <<< "$pods")" "$desired_microservice_replicas"
+check "Independent signed service images" "$(jq '[.items[] | select(.spec.containers[0].image | test("^ghcr.io/tndat-dev/aims-(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)@sha256:"))] | length' <<< "$pods")" "$desired_microservice_replicas"
 check "Distinct microservice image repositories" "$(jq '[.items[].spec.containers[0].image | split("@")[0]] | unique | length' <<< "$pods")" 10
-check "Localhost hardened telemetry pods" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "security-telemetry-service" and .spec.securityContext.seccompProfile.type == "Localhost" and .spec.securityContext.appArmorProfile.type == "Localhost")] | length' <<< "$pods")" 2
-check "Containers dropping ALL capabilities" "$(jq '[.items[].spec.containers[] | select((.securityContext.capabilities.drop // []) | index("ALL"))] | length' <<< "$pods")" 20
-check "Microservice read-only rootfs" "$(jq '[.items[].spec.containers[] | select(.securityContext.readOnlyRootFilesystem == true)] | length' <<< "$pods")" 20
+check "Localhost hardened telemetry pods" "$(jq '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "security-telemetry-service" and .spec.securityContext.seccompProfile.type == "Localhost" and .spec.securityContext.appArmorProfile.type == "Localhost")] | length' <<< "$pods")" "$telemetry_replicas"
+check "Containers dropping ALL capabilities" "$(jq '[.items[].spec.containers[] | select((.securityContext.capabilities.drop // []) | index("ALL"))] | length' <<< "$pods")" "$desired_microservice_replicas"
+check "Microservice read-only rootfs" "$(jq '[.items[].spec.containers[] | select(.securityContext.readOnlyRootFilesystem == true)] | length' <<< "$pods")" "$desired_microservice_replicas"
 
 check "Gateway API ingress Programmed" "$(kubectl -n istio-ingress get gateway aims-ingress -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}')" True
 check "Ambient waypoint Programmed" "$(kubectl -n production get gateway aims-waypoint -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}')" True
