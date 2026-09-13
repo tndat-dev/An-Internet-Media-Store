@@ -3,10 +3,13 @@
 import os
 
 from fastapi import FastAPI
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -20,7 +23,10 @@ def install_observability(app: FastAPI) -> None:
     if not endpoint:
         return
     service_name = os.getenv("OTEL_SERVICE_NAME", os.getenv("AIMS_SERVICE_NAME", "aims-service"))
-    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=endpoint.startswith("http://"))))
+    meter_provider = MeterProvider(resource=resource, metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint, insecure=endpoint.startswith("http://")), export_interval_millis=15000)])
     trace.set_tracer_provider(provider)
-    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider, excluded_urls="healthz,api/health,metrics")
+    metrics.set_meter_provider(meter_provider)
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider, meter_provider=meter_provider, excluded_urls="healthz,api/health,metrics")
