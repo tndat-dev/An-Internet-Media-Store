@@ -18,6 +18,13 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: production
+  # HPA owns Rollout replica counts. Ignoring only this JSON pointer prevents
+  # Argo self-heal and HPA from continuously overwriting each other.
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true

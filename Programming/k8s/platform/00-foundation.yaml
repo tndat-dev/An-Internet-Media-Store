@@ -119,11 +119,11 @@ metadata:
   namespace: production
 spec:
   hard:
-    requests.cpu: "12"
-    requests.memory: 24Gi
+    requests.cpu: "20"
+    requests.memory: 32Gi
     # Includes temporary maxSurge pods while all ten Rollouts canary together.
-    limits.cpu: "50"
-    limits.memory: 64Gi
+    limits.cpu: "70"
+    limits.memory: 80Gi
     persistentvolumeclaims: "30"
 ---
 apiVersion: v1
