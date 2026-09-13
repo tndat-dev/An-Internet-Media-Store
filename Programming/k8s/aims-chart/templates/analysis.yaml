@@ -19,15 +19,15 @@ spec:
           address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
           query: |
             (
-              sum(rate(http_server_request_duration_seconds_count{job="production/{{ `{{args.service-name}}` }}",http_response_status_code=~"5.."}[2m]))
+              sum(rate(http_server_duration_milliseconds_count{job="production/{{ `{{args.service-name}}` }}",http_status_code=~"5.."}[2m]))
               /
-              clamp_min(sum(rate(http_server_request_duration_seconds_count{job="production/{{ `{{args.service-name}}` }}"}[2m])), 0.001)
+              clamp_min(sum(rate(http_server_duration_milliseconds_count{job="production/{{ `{{args.service-name}}` }}"}[2m])), 0.001)
             ) or vector(0)
-    - name: http-p95-seconds
+    - name: http-p95-milliseconds
       interval: 30s
       count: 3
       failureLimit: 2
-      successCondition: result[0] <= 1.5
+      successCondition: result[0] <= 1500
       provider:
         prometheus:
           address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
@@ -35,6 +35,6 @@ spec:
             histogram_quantile(
               0.95,
               sum by (le) (
-                rate(http_server_request_duration_seconds_bucket{job="production/{{ `{{args.service-name}}` }}"}[2m])
+                rate(http_server_duration_milliseconds_bucket{job="production/{{ `{{args.service-name}}` }}"}[2m])
               )
             ) or vector(0)

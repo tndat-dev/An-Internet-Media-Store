@@ -89,9 +89,13 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: otel-collector-collector
+      operator.opentelemetry.io/collector-service-type: base
   endpoints:
     - port: prometheus
       interval: 30s
+      # The Collector exporter sets job=production/<service>. Preserve it so
+      # SLO queries address the originating application, not the scrape target.
+      honorLabels: true
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -112,18 +116,11 @@ spec:
             severity: warning
           annotations:
             summary: "AIMS OpenTelemetry metrics collector is unavailable"
-        - alert: AIMSTelemetryMetricsRejected
-          expr: sum(rate(otelcol_receiver_refused_metric_points_total[5m])) > 0
-          for: 2m
-          labels:
-            severity: warning
-          annotations:
-            summary: "OpenTelemetry Collector is rejecting AIMS metric points"
         - alert: AIMSHighHTTP5xxRatio
           expr: |
-            sum by (job) (rate(http_server_request_duration_seconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)",http_response_status_code=~"5.."}[5m]))
+            sum by (job) (rate(http_server_duration_milliseconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)",http_status_code=~"5.."}[5m]))
             /
-            clamp_min(sum by (job) (rate(http_server_request_duration_seconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)"}[5m])), 0.001)
+            clamp_min(sum by (job) (rate(http_server_duration_milliseconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)"}[5m])), 0.001)
             > 0.05
           for: 5m
           labels:

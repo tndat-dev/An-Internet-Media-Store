@@ -68,8 +68,10 @@ kubectl apply --server-side --force-conflicts -f "$root/platform/30-observabilit
 kubectl -n monitoring delete servicemonitor aims-microservices --ignore-not-found
 if [[ "$(kubectl get namespace monitoring -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null)" == ambient ]]; then
   kubectl label namespace monitoring istio.io/dataplane-mode-
-  kubectl -n monitoring rollout restart statefulset/monitoring-kube-prometheus-prometheus
-  kubectl -n monitoring rollout status statefulset/monitoring-kube-prometheus-prometheus --timeout=5m
+  prometheus_sts="$(kubectl -n monitoring get statefulset -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')"
+  [[ -n "$prometheus_sts" ]] || { echo "Prometheus StatefulSet not found" >&2; exit 1; }
+  kubectl -n monitoring rollout restart "statefulset/$prometheus_sts"
+  kubectl -n monitoring rollout status "statefulset/$prometheus_sts" --timeout=5m
 fi
 kubectl apply --server-side --force-conflicts -f "$root/platform/50-backup.yaml"
 kubectl apply --server-side --force-conflicts -f "$root/platform/60-backup-schedule.yaml"
