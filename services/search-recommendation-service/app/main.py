@@ -12,6 +12,8 @@ from fastapi import FastAPI, HTTPException, Query
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
+from app.observability import install_observability
+
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS search_recommendation_service;
 CREATE TABLE IF NOT EXISTS search_recommendation_service.interactions (
@@ -60,6 +62,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS search-recommendation-service", version="1.0.0", lifespan=lifespan)
+install_observability(app)
 
 
 async def catalog_search(query: str, limit: int) -> list[dict[str, Any]]:

@@ -31,6 +31,9 @@ kubectl apply --server-side --force-conflicts -f "$root/platform/15-external-sec
 
 store_ready="$(kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
 [[ "$store_ready" == True ]] || { echo "Vault ClusterSecretStore is not Ready" >&2; exit 1; }
+for external_secret in aims-runtime aims-rabbitmq-app-credentials aims-redis-auth aims-minio-env; do
+  kubectl -n "$namespace" wait --for=condition=Ready "externalsecret/${external_secret}" --timeout=2m
+done
 
 # The Tenant asks the MinIO Operator to register a scrape configuration. Point
 # it at the actual kube-prometheus-stack CR before reconciling the Tenant.

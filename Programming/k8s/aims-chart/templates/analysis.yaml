@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: aims-service-slo
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: http-5xx-ratio
+      interval: 30s
+      count: 3
+      failureLimit: 2
+      successCondition: result[0] <= 0.05
+      provider:
+        prometheus:
+          address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            (
+              sum(rate(http_requests_total{namespace="production",service={{ `"{{args.service-name}}"` }},status=~"5.."}[2m]))
+              /
+              clamp_min(sum(rate(http_requests_total{namespace="production",service={{ `"{{args.service-name}}"` }}}[2m])), 0.001)
+            ) or vector(0)
+    - name: http-p95-seconds
+      interval: 30s
+      count: 3
+      failureLimit: 2
+      successCondition: result[0] <= 1.5
+      provider:
+        prometheus:
+          address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(http_request_duration_seconds_bucket{namespace="production",service={{ `"{{args.service-name}}"` }}}[2m])
+              )
+            ) or vector(0)

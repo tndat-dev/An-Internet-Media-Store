@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import ssl
 import uuid
@@ -13,11 +14,18 @@ from decimal import Decimal
 from typing import Any
 
 import psycopg
+import aio_pika
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+from app.observability import install_observability
+from aiokafka.structs import TopicPartition
 from fastapi import FastAPI, HTTPException
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("aims.payment")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS payment_service;
@@ -65,8 +73,14 @@ class PaymentRuntime:
         self.consumer: AIOKafkaConsumer | None = None
         self.producer: AIOKafkaProducer | None = None
         self.tasks: list[asyncio.Task] = []
+        self.rabbit_connection: Any = None
+        self.rabbit_channel: Any = None
+        self.task_exchange: Any = None
+        self.payment_queue: Any = None
         self.database_ready = False
         self.kafka_ready = False
+        self.rabbit_ready = False
+        self.last_error: str | None = None
 
     async def connect(self) -> psycopg.AsyncConnection:
         if not self.database_url:
@@ -79,6 +93,7 @@ class PaymentRuntime:
                 await connection.execute("SELECT pg_advisory_xact_lock(hashtext('aims-payment-schema-v1'))")
                 await connection.execute(SCHEMA_SQL)
             self.database_ready = True
+        await self.start_rabbit()
         bootstrap, tls = os.getenv("KAFKA_BOOTSTRAP_SERVERS", ""), tls_context()
         if bootstrap and tls:
             common = {"bootstrap_servers": bootstrap, "security_protocol": "SSL", "ssl_context": tls}
@@ -86,27 +101,110 @@ class PaymentRuntime:
             self.producer = AIOKafkaProducer(acks="all", enable_idempotence=True, **common)
             await self.producer.start(); await self.consumer.start()
             self.kafka_ready = True
-            self.tasks = [asyncio.create_task(self.consume()), asyncio.create_task(self.publish_outbox())]
+            self.tasks.extend([asyncio.create_task(self.consume()), asyncio.create_task(self.publish_outbox())])
+
+    async def start_rabbit(self) -> None:
+        host = os.getenv("RABBITMQ_HOST", "").strip()
+        username = os.getenv("RABBITMQ_USERNAME", "")
+        password = os.getenv("RABBITMQ_PASSWORD", "")
+        if not host or not username or not password:
+            logger.warning("RabbitMQ disabled: application credentials are unavailable")
+            return
+        self.rabbit_connection = await aio_pika.connect_robust(
+            host=host,
+            port=int(os.getenv("RABBITMQ_PORT", "5672")),
+            login=username,
+            password=password,
+            client_properties={"connection_name": "aims-payment-service"},
+        )
+        self.rabbit_channel = await self.rabbit_connection.channel()
+        await self.rabbit_channel.set_qos(prefetch_count=20)
+        # Topology is operator-owned. Avoid passive declarations so the app
+        # needs only publish/consume permissions, not configure permission.
+        self.task_exchange = await self.rabbit_channel.get_exchange("aims.tasks", ensure=False)
+        self.payment_queue = await self.rabbit_channel.get_queue("payment.tasks", ensure=False)
+        self.rabbit_ready = True
+        self.tasks.append(asyncio.create_task(self.consume_payment_tasks()))
 
     async def stop(self) -> None:
         for task in self.tasks: task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         if self.consumer: await self.consumer.stop()
         if self.producer: await self.producer.stop()
+        if self.rabbit_connection:
+            await self.rabbit_connection.close()
+        self.rabbit_ready = False
 
     async def consume(self) -> None:
         assert self.consumer
         async for message in self.consumer:
             event = message.value
-            if event.get("eventType") == "InventoryReserved" and self.database_url:
-                async with await self.connect() as connection:
-                    async with connection.transaction():
-                        prior = await connection.execute("SELECT 1 FROM payment_service.processed_events WHERE event_id=%s", (event["eventId"],))
-                        if not await prior.fetchone():
-                            payload = event.get("payload", {})
-                            await connection.execute("INSERT INTO payment_service.payments(payment_id,order_id,amount,currency,provider,status) VALUES (%s,%s,%s,%s,'VIETQR','AWAITING_PAYMENT') ON CONFLICT(order_id) DO NOTHING", (uuid.uuid4(), event["aggregateId"], Decimal(str(payload.get("totalAmount", "0"))), payload.get("currency", "VND")))
-                            await connection.execute("INSERT INTO payment_service.processed_events(event_id) VALUES (%s)", (event["eventId"],))
+            if event.get("eventType") == "InventoryReserved":
+                try:
+                    await self.publish_payment_task(event)
+                except Exception as error:
+                    self.last_error = str(error)
+                    self.rabbit_ready = False
+                    self.consumer.seek(
+                        TopicPartition(message.topic, message.partition), message.offset
+                    )
+                    await asyncio.sleep(3)
+                    continue
             await self.consumer.commit()
+
+    async def publish_payment_task(self, event: dict[str, Any]) -> None:
+        if not self.task_exchange:
+            raise RuntimeError("RabbitMQ task exchange is unavailable")
+        await self.task_exchange.publish(
+            aio_pika.Message(
+                body=json.dumps(event).encode("utf-8"),
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                content_type="application/json",
+                message_id=event.get("eventId"),
+                correlation_id=event.get("correlationId"),
+            ),
+            routing_key="payment.execute",
+        )
+        self.rabbit_ready = True
+
+    async def consume_payment_tasks(self) -> None:
+        assert self.payment_queue is not None
+        async with self.payment_queue.iterator() as iterator:
+            async for message in iterator:
+                try:
+                    async with message.process(requeue=False):
+                        event = json.loads(message.body.decode("utf-8"))
+                        await self.process_inventory_event(event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Payment task rejected to DLQ")
+
+    async def process_inventory_event(self, event: dict[str, Any]) -> None:
+        if event.get("eventType") != "InventoryReserved" or not self.database_url:
+            return
+        async with await self.connect() as connection:
+            async with connection.transaction():
+                prior = await connection.execute(
+                    "SELECT 1 FROM payment_service.processed_events WHERE event_id=%s",
+                    (event["eventId"],),
+                )
+                if await prior.fetchone():
+                    return
+                payload = event.get("payload", {})
+                await connection.execute(
+                    "INSERT INTO payment_service.payments(payment_id,order_id,amount,currency,provider,status) VALUES (%s,%s,%s,%s,'VIETQR','AWAITING_PAYMENT') ON CONFLICT(order_id) DO NOTHING",
+                    (
+                        uuid.uuid4(),
+                        event["aggregateId"],
+                        Decimal(str(payload.get("totalAmount", "0"))),
+                        payload.get("currency", "VND"),
+                    ),
+                )
+                await connection.execute(
+                    "INSERT INTO payment_service.processed_events(event_id) VALUES (%s)",
+                    (event["eventId"],),
+                )
 
     async def publish_outbox(self) -> None:
         assert self.producer
@@ -163,12 +261,13 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS payment-service", version="1.0.0", lifespan=lifespan)
+install_observability(app)
 
 
 @app.get("/healthz")
 @app.get("/api/health/")
 async def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "payment-service", "databaseReady": runtime.database_ready, "kafkaReady": runtime.kafka_ready}
+    return {"status": "ok", "service": "payment-service", "databaseReady": runtime.database_ready, "kafkaReady": runtime.kafka_ready, "rabbitReady": runtime.rabbit_ready, "lastError": runtime.last_error}
 
 
 @app.post("/api/payments/complete/", status_code=202)

@@ -14,6 +14,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
+from app.observability import install_observability
+
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS catalog_service;
 CREATE TABLE IF NOT EXISTS catalog_service.products (
@@ -106,6 +108,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS catalog-service", version="1.0.0", lifespan=lifespan)
+install_observability(app)
 
 
 def encode_product(row: dict[str, Any]) -> dict[str, Any]:

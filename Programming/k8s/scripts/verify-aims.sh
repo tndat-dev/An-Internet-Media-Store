@@ -89,12 +89,61 @@ check "Microservice placement max skew <= 1" "$placement_ok" true
 
 check "CNPG ready instances" "$(kubectl -n production get cluster aims-postgres-cnpg -o jsonpath='{.status.readyInstances}')" 3
 check "Redis replication master" "$(kubectl -n production get redisreplications.redis.redis.opstreelabs.in aims-redis -o jsonpath='{.status.masterNode}')" aims-redis-0
+redis_master_count=0
+redis_replica_count=0
+redis_links_up=0
+redis_connected_slaves=0
+declare -A redis_replids=()
+for pod in $(kubectl -n production get pods -l app=aims-redis -o name); do
+  info=$(kubectl -n production exec "${pod}" -- sh -c \
+    'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli INFO replication 2>/dev/null' | tr -d '\r')
+  role=$(awk -F: '$1 == "role" {print $2}' <<< "${info}")
+  replid=$(awk -F: '$1 == "master_replid" {print $2}' <<< "${info}")
+  [[ -n "${replid}" ]] && redis_replids["${replid}"]=1
+  if [[ "${role}" == "master" ]]; then
+    redis_master_count=$((redis_master_count + 1))
+    redis_connected_slaves=$(awk -F: '$1 == "connected_slaves" {print $2}' <<< "${info}")
+  elif [[ "${role}" == "slave" ]]; then
+    redis_replica_count=$((redis_replica_count + 1))
+    [[ "$(awk -F: '$1 == "master_link_status" {print $2}' <<< "${info}")" == "up" ]] && \
+      redis_links_up=$((redis_links_up + 1))
+  fi
+done
+check "Redis runtime master count" "${redis_master_count}" 1
+check "Redis runtime replica count" "${redis_replica_count}" 2
+check "Redis replica links up" "${redis_links_up}" 2
+check "Redis master connected replicas" "${redis_connected_slaves}" 2
+check "Redis common replication ID" "${#redis_replids[@]}" 1
+check "Redis pods on distinct workers" \
+  "$(kubectl -n production get pods -l app=aims-redis -o json | jq '[.items[].spec.nodeName] | unique | length')" 3
+check "Redis Sentinel pods on distinct workers" \
+  "$(kubectl -n production get pods -l app=aims-redis-sentinel-sentinel -o json | jq '[.items[].spec.nodeName] | unique | length')" 3
+sentinel_quorum=0
+for pod in $(kubectl -n production get pods -l app=aims-redis-sentinel-sentinel -o name); do
+  result=$(kubectl -n production exec "${pod}" -- sh -c \
+    'REDISCLI_AUTH="$MASTER_PASSWORD" redis-cli -p 26379 SENTINEL CKQUORUM myMaster 2>/dev/null' || true)
+  [[ "${result}" == OK* ]] && sentinel_quorum=$((sentinel_quorum + 1))
+done
+check "Redis Sentinel quorum consensus" "${sentinel_quorum}" 3
 check "Kafka Ready" "$(kubectl -n production get kafka aims-kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" True
 check "Kafka topic CRs Ready" "$(kubectl -n production get kafkatopics.kafka.strimzi.io -l strimzi.io/cluster=aims-kafka -o json | jq '[.items[] | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length')" 6
 check "Versioned Kafka event topics Ready" "$(kubectl -n production get kafkatopics.kafka.strimzi.io -o json | jq '[.items[] | select(.metadata.name == "aims.business.order.created.v1" or .metadata.name == "aims.business.inventory.reserved.v1" or .metadata.name == "aims.business.inventory.rejected.v1" or .metadata.name == "aims.business.payment.completed.v1") | select(.status.conditions[] | .type == "Ready" and .status == "True")] | length')" 4
 kafka_pods=$(kubectl -n production get pods -l strimzi.io/name=aims-kafka-kafka -o json)
 check "Kafka brokers on distinct workers" "$(jq '[.items[] | select(.metadata.deletionTimestamp == null and .status.containerStatuses[0].ready == true) | .spec.nodeName] | unique | length' <<< "$kafka_pods")" 3
 check "RabbitMQ all replicas" "$(kubectl -n production get rabbitmqcluster aims-rabbitmq -o jsonpath='{.status.conditions[?(@.type=="AllReplicasReady")].status}')" True
+rabbit_topology=$(kubectl -n production get \
+  users.rabbitmq.com,permissions.rabbitmq.com,exchanges.rabbitmq.com,queues.rabbitmq.com,bindings.rabbitmq.com \
+  -o json)
+check "RabbitMQ topology objects Ready" \
+  "$(jq '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length' <<< "${rabbit_topology}")" 12
+rabbit_pod=$(kubectl -n production get pods -l app.kubernetes.io/name=aims-rabbitmq -o jsonpath='{.items[0].metadata.name}')
+rabbit_queues=$(kubectl -n production exec "${rabbit_pod}" -- rabbitmqctl -q list_queues name consumers 2>/dev/null)
+payment_consumers=$(awk '$1 == "payment.tasks" {print $2}' <<< "${rabbit_queues}")
+notification_consumers=$(awk '$1 == "notification.tasks" {print $2}' <<< "${rabbit_queues}")
+[[ "${payment_consumers:-0}" -ge 1 ]] && payment_consumer_ready=true || payment_consumer_ready=false
+[[ "${notification_consumers:-0}" -ge 1 ]] && notification_consumer_ready=true || notification_consumer_ready=false
+check "RabbitMQ payment task consumer" "${payment_consumer_ready}" true
+check "RabbitMQ notification task consumer" "${notification_consumer_ready}" true
 check "MinIO health" "$(kubectl -n production get tenant aims-minio -o jsonpath='{.status.healthStatus}')" green
 check "MinIO excluded from recursive Kopia" "$(kubectl -n production get tenant aims-minio -o jsonpath='{.spec.pools[0].annotations.backup\.velero\.io/backup-volumes-excludes}')" data0,data1,cfg-vol
 minio_pvcs=$(kubectl -n production get pvc -l v1.min.io/tenant=aims-minio -o json)

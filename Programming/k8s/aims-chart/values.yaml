@@ -143,3 +143,9 @@ resources:
   limits:
     cpu: 750m
     memory: 768Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75

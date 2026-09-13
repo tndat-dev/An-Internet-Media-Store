@@ -121,7 +121,7 @@ spec:
   hard:
     requests.cpu: "12"
     requests.memory: 24Gi
-    # Includes temporary maxSurge pods while all nine Rollouts canary together.
+    # Includes temporary maxSurge pods while all ten Rollouts canary together.
     limits.cpu: "50"
     limits.memory: 64Gi
     persistentvolumeclaims: "30"

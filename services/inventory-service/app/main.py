@@ -16,6 +16,8 @@ import psycopg
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from fastapi import FastAPI, HTTPException
 from psycopg.rows import dict_row
+
+from app.observability import install_observability
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
@@ -325,6 +327,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS inventory-service", version="0.1.0", lifespan=lifespan)
+install_observability(app)
 
 
 @app.get("/healthz")

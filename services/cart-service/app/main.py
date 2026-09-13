@@ -14,6 +14,8 @@ from fastapi import FastAPI, Header, HTTPException
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
+from app.observability import install_observability
+
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS cart_service;
 CREATE TABLE IF NOT EXISTS cart_service.carts (
@@ -63,6 +65,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS cart-service", version="1.0.0", lifespan=lifespan)
+install_observability(app)
 
 
 async def product_snapshot(product_id: str) -> dict[str, Any]:
@@ -100,11 +103,28 @@ def render_cart(cart: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, 
             "totalItems": sum(item["quantity"] for item in items), "canPlaceOrder": bool(items), "stockErrors": []}
 
 
+def empty_cart(token: str) -> dict[str, Any]:
+    return {
+        "cartId": None,
+        "cartToken": token,
+        "status": "ACTIVE",
+        "items": [],
+        "subtotalExclVat": "0",
+        "totalItems": 0,
+        "canPlaceOrder": False,
+        "stockErrors": [],
+    }
+
+
 async def load_cart(token: str) -> dict[str, Any]:
     async with await runtime.connect() as connection:
-        cart_id = await ensure_cart(connection, token)
-        cart_cursor = await connection.execute("SELECT * FROM cart_service.carts WHERE cart_id=%s", (cart_id,))
+        cart_cursor = await connection.execute(
+            "SELECT * FROM cart_service.carts WHERE cart_token=%s", (token,)
+        )
         cart = await cart_cursor.fetchone()
+        if not cart:
+            return empty_cart(token)
+        cart_id = cart["cart_id"]
         item_cursor = await connection.execute("SELECT * FROM cart_service.items WHERE cart_id=%s ORDER BY product_title", (cart_id,))
         items = await item_cursor.fetchall()
     return render_cart(cart, items)

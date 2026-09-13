@@ -18,6 +18,7 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/part-of: aims
+    app.kubernetes.io/component: backend
     istio.io/use-waypoint: aims-waypoint
 spec:
   selector:
@@ -50,8 +51,12 @@ spec:
         - pause:
             duration: 30s
         - setWeight: 50
-        - pause:
-            duration: 30s
+        - analysis:
+            templates:
+              - templateName: aims-service-slo
+            args:
+              - name: service-name
+                value: {{ .name | quote }}
         - setWeight: 100
   template:
     metadata:
@@ -248,4 +253,46 @@ spec:
             secretName: {{ .kafkaClusterCaSecret }}
             defaultMode: 0400
         {{- end }}
+{{- if $.Values.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}
+  namespace: production
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+    app.kubernetes.io/part-of: aims
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: {{ .name }}
+  minReplicas: {{ $.Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $.Values.autoscaling.maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $.Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
 {{- end }}

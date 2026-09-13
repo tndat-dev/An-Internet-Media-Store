@@ -9,6 +9,8 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from app.observability import install_observability
+
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1)
@@ -109,6 +111,7 @@ async def admin_token() -> str:
 
 
 app = FastAPI(title="AIMS auth-service", version="1.0.0")
+install_observability(app)
 
 
 @app.get("/healthz")

@@ -16,6 +16,8 @@ import httpx
 import psycopg
 from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI, Header, HTTPException
+
+from app.observability import install_observability
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
@@ -119,6 +121,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AIMS order-service", version="1.0.0", lifespan=lifespan)
+install_observability(app)
 
 
 def render_order(row: dict[str, Any]) -> dict[str, Any]:

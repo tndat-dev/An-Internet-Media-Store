@@ -38,6 +38,13 @@ metadata:
     app.kubernetes.io/part-of: aims
 spec:
   clusterSize: 3
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: aims-redis
+          topologyKey: kubernetes.io/hostname
   kubernetesConfig:
     image: quay.io/opstree/redis:v8.2.1
     imagePullPolicy: IfNotPresent
@@ -85,6 +92,13 @@ metadata:
     app.kubernetes.io/part-of: aims
 spec:
   clusterSize: 3
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: aims-redis-sentinel-sentinel
+          topologyKey: kubernetes.io/hostname
   kubernetesConfig:
     image: quay.io/opstree/redis-sentinel:v8.2.1
     imagePullPolicy: IfNotPresent
@@ -479,6 +493,60 @@ spec:
       vm_memory_high_watermark.relative = 0.7
 ---
 apiVersion: rabbitmq.com/v1beta1
+kind: User
+metadata:
+  name: aims-rabbitmq-app
+  namespace: production
+spec:
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+  importCredentialsSecret:
+    name: aims-rabbitmq-app-credentials
+  limits:
+    connections: 40
+    channels: 100
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Permission
+metadata:
+  name: aims-rabbitmq-app
+  namespace: production
+spec:
+  vhost: /
+  userReference:
+    name: aims-rabbitmq-app
+  permissions:
+    configure: "^$"
+    write: "^aims\\.(tasks|dlx)$"
+    read: "^(payment|notification)\\.tasks$"
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Exchange
+metadata:
+  name: aims-tasks
+  namespace: production
+spec:
+  name: aims.tasks
+  type: direct
+  durable: true
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Exchange
+metadata:
+  name: aims-dlx
+  namespace: production
+spec:
+  name: aims.dlx
+  type: direct
+  durable: true
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
 kind: Queue
 metadata:
   name: payment-tasks
@@ -505,3 +573,77 @@ spec:
   arguments:
     x-dead-letter-exchange: aims.dlx
     x-dead-letter-routing-key: notification.failed
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Queue
+metadata:
+  name: payment-tasks-dlq
+  namespace: production
+spec:
+  name: payment.tasks.dlq
+  durable: true
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Queue
+metadata:
+  name: notification-tasks-dlq
+  namespace: production
+spec:
+  name: notification.tasks.dlq
+  durable: true
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Binding
+metadata:
+  name: aims-payment-tasks
+  namespace: production
+spec:
+  source: aims.tasks
+  destination: payment.tasks
+  destinationType: queue
+  routingKey: payment.execute
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Binding
+metadata:
+  name: aims-notification-tasks
+  namespace: production
+spec:
+  source: aims.tasks
+  destination: notification.tasks
+  destinationType: queue
+  routingKey: notification.deliver
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Binding
+metadata:
+  name: aims-payment-dlq
+  namespace: production
+spec:
+  source: aims.dlx
+  destination: payment.tasks.dlq
+  destinationType: queue
+  routingKey: payment.failed
+  rabbitmqClusterReference:
+    name: aims-rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Binding
+metadata:
+  name: aims-notification-dlq
+  namespace: production
+spec:
+  source: aims.dlx
+  destination: notification.tasks.dlq
+  destinationType: queue
+  routingKey: notification.failed
+  rabbitmqClusterReference:
+    name: aims-rabbitmq

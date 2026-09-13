@@ -6,12 +6,15 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/00-namespace.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/00-foundation.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/05-rbac.yaml"
+kubectl apply -f "${ROOT_DIR}/platform/15-external-secrets.yaml"
+for external_secret in aims-runtime aims-rabbitmq-app-credentials aims-redis-auth aims-minio-env; do
+  kubectl -n production wait --for=condition=Ready "externalsecret/${external_secret}" --timeout=2m
+done
 helm upgrade --install minio-operator minio-operator/operator --version 7.1.1 \
   --namespace minio-operator --create-namespace --reuse-values \
   -f "${ROOT_DIR}/platform/minio-operator-values.yaml" --history-max 10
 kubectl -n minio-operator rollout status deployment/minio-operator --timeout=3m
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/10-data-messaging.yaml"
-kubectl apply -f "${ROOT_DIR}/platform/15-external-secrets.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/20-policy-security.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/22-supply-chain-policy.yaml"
 kubectl apply --server-side --force-conflicts -f "${ROOT_DIR}/platform/25-kube-bench.yaml"
