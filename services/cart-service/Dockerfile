@@ -5,7 +5,10 @@ LABEL org.opencontainers.image.revision="${AIMS_SOURCE_REVISION}"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir -r requirements.txt \
  && useradd --system --uid 10001 --create-home aims
 COPY app ./app
 USER 10001

@@ -1248,6 +1248,14 @@ Audit sâu cũng xác nhận RabbitMQ runtime credential của app chưa authent
 thiện nếu bài lab phải chứng minh payment/notification task queue manual ack +
 DLQ; không cần bổ sung thêm một loại broker hoặc service mesh mới.
 
+Run supply-chain sau audit đã phát hiện base `python:3.12-slim` cũ mang
+`perl-base 5.40.1-6` với ba CVE Critical đã có bản vá. Dockerfile backend và cả
+10 service được bổ sung security upgrade trước khi cài dependency; build lại
+hai image đại diện (API Gateway và Django backend) trên Debian 13.7 rồi quét
+Trivy đều trả 0 Critical. Đây là ví dụ cổng vulnerability chặn release đúng kỳ
+vọng: Argo CD giữ nguyên release khỏe cho tới khi image sửa lỗi được scan, ký và
+attest thành công.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,
