@@ -169,6 +169,15 @@ spec:
         - ports:
             - port: "15008"
               protocol: TCP
+    # For same-node Ambient traffic ztunnel decapsulates HBONE locally and
+    # Cilium observes the final hop as host -> workload:8000. Restrict this
+    # exception to the application port; cross-node traffic still enters 15008.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: production
