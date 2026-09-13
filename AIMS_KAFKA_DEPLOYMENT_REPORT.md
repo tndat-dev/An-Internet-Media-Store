@@ -426,9 +426,10 @@ metadata, file handle, recovery time và controller load.
 Order, inventory, payment, notification và security-telemetry đã dùng Kafka thật
 qua TLS 9093. Order/payment/inventory dùng transactional outbox; consumer lưu
 event ID và commit offset sau side effect để bảo đảm at-least-once + idempotency.
-E2E release ngày 12/09/2026 đã quan sát `OrderCreated` làm tồn kho giảm 109→108,
-payment hoàn tất, outbox được đánh dấu published và notification nhận đúng
-`orderId`.
+E2E release ngày 14/09/2026 chạy checkout production-like: `OrderCreated` được
+inventory consume, payment task đi RabbitMQ, kết quả thanh toán quay lại Kafka
+và notification task đi RabbitMQ. Outbox được đánh dấu published; queue trở về
+0 ready/0 unacked sau khi consumer xử lý.
 
 Các bước nâng cấp ngoài phạm vi lab:
 

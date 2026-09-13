@@ -3,7 +3,7 @@
 **Đơn vị học phần:** HUST – ISD.20252-18  
 **Dự án:** AIMS (An Internet Media Store)  
 **Môi trường:** `production` trên cụm kubeadm on-premise  
-**Ngày cập nhật gần nhất:** 12/09/2026 (UTC+7)
+**Ngày cập nhật gần nhất:** 14/09/2026 (UTC+7)
 
 **Repository làm việc:** `/home/tndat/An-Internet-Media-Store`
 
@@ -1253,15 +1253,34 @@ Trivy đều trả 0 Critical. Đây là ví dụ cổng vulnerability chặn re
 vọng: Argo CD giữ nguyên release khỏe cho tới khi image sửa lỗi được scan, ký và
 attest thành công.
 
+### 14.19 Nghiệm thu release OTLP và request ngày 14/09/2026
+
+Source `e5c5943dd1c3` qua GitHub Actions run `34761470986`: test, build 12 image,
+Trivy, Syft CycloneDX, Cosign keyless và in-toto SLSA đều thành công trước commit
+promotion digest `74a7c78`. Argo CD `Synced/Healthy`, 10/10 Rollout Healthy và
+HPA sở hữu replica count. Verifier đã sửa để đối chiếu tổng replica động; tại
+thời điểm tải có 40/40 pod, phân bố worker 13/14/13, không còn giả định cố định
+20 pod.
+
+Bài k6 chạy tối đa 11 VU đạt 663/663 check, 664 request, 0% lỗi, p95 303,72 ms,
+p99 471,31 ms; checkout Kafka/RabbitMQ hoàn tất 9,08 giây. Queue payment và
+notification trở về 0 ready/0 unacked; consumer count đi theo HPA. Prometheus
+nhận metric OTLP của đủ 10 service qua hai Collector, gateway p95 225,87 ms và
+5xx bằng 0. Tempo trả distributed trace thật của API Gateway. Scrape trực tiếp
+pod đã được dọn để giữ mTLS STRICT và tránh target cùng node bị timeout.
+
+`audit-live-sync.sh`, `verify-aims.sh` và `verify-cks-lab.sh` đều exit 0: 6/6
+node Ready, 0 pod lỗi/Unknown, 0 failed Job, 0 PVC unbound, Redis đúng một master
+hai replica, Kafka/RabbitMQ/MinIO/OpenSearch/Vault/Longhorn đều đạt condition.
+
 ## 15. Kết luận
 
 Nền tảng đã minh họa đầy đủ các lớp của một hệ thống cloud-native: compute,
 network, mesh, identity, policy, data, messaging, storage, supply chain,
 observability, runtime security và DR. Giá trị lớn nhất của triển khai không chỉ
 là số lượng công cụ mà là các điểm tích hợp đã được kiểm chứng: Cilium với HBONE,
-mTLS STRICT với probe, Vault với ESO, operator với PSA, Kafka event flow và
-Longhorn snapshot trước filesystem recovery. RabbitMQ semantics là phần mở rộng
-đã được ghi rõ, không được tính là tích hợp business đã nghiệm thu.
+mTLS STRICT với probe, Vault với ESO, operator với PSA, Kafka event log,
+RabbitMQ task ack/DLQ và Longhorn snapshot trước filesystem recovery.
 
 Hệ thống phù hợp cho lab CKA/CKS và demo production-like của AIMS. Để gọi là
 production enterprise cần xử lý các giới hạn ở mục 12, đặc biệt storage/backup

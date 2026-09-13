@@ -4,7 +4,7 @@
 **Học phần/nhóm:** ISD.20252-18  
 **Môi trường:** cụm kubeadm tại mạng `10.1.16.0/24`  
 **Namespace ứng dụng:** `production`  
-**Ngày chốt báo cáo:** 12/09/2026
+**Ngày chốt báo cáo:** 14/09/2026
 **Mã nguồn và Infrastructure as Code:** `Programming/k8s/`
 
 > Báo cáo không ghi mật khẩu, token, private key hoặc giá trị Secret. Các bí mật
@@ -694,12 +694,12 @@ object, 32/32 PodVolumeBackup và 0 error. Restore
 `aims-config-drill-20260912140426` phục hồi 12 ConfigMap vào namespace cô lập,
 không tạo Pod, Secret, PVC hoặc controller và cleanup namespace thành công.
 
-### 9.4 Nghiệm thu reliability và request ngày 13/09/2026
+### 9.4 Nghiệm thu reliability và request ngày 14/09/2026
 
-Release source `7f2759c70783` được GitHub Actions run `34733240637` test, build
+Release source `e5c5943dd1c3` được GitHub Actions run `34761470986` test, build
 12 image, Trivy scan, Cosign keyless sign, đính CycloneDX SBOM và SLSA v1
-provenance trước khi promotion digest. Mười AnalysisRun của Argo Rollouts đều
-`Successful` với gate tỷ lệ HTTP 5xx tối đa 5% và p95 tối đa 1,5 giây.
+provenance trước khi tạo commit promotion digest `74a7c78`. Mười AnalysisRun của
+Argo Rollouts dùng gate tỷ lệ HTTP 5xx tối đa 5% và p95 tối đa 1.500 ms.
 
 Redis được kiểm tra từ `INFO replication`, không dựa riêng vào status CR: đúng
 một master, hai replica `master_link_status=up`, master thấy hai connected
@@ -709,15 +709,20 @@ API Gateway discovery đúng service Sentinel do operator sinh và health báo
 
 Profile [`tests/load/aims-production.js`](tests/load/aims-production.js) chạy 10
 VU browse đồng thời một checkout synthetic. Kết quả đạt 657/657 check, 658 HTTP
-request, 0% failure, p95 305,11 ms, p99 413,65 ms; checkout E2E hoàn thành 9,1
-giây. Luồng ghi đi qua order outbox, Kafka, inventory, RabbitMQ payment task,
+request ở lần đầu; lần chốt release đạt 663/663 check, 664 request, 0% failure,
+p95 303,72 ms, p99 471,31 ms; checkout E2E hoàn thành 9,08 giây. Luồng ghi đi
+qua order outbox, Kafka, inventory, RabbitMQ payment task,
 payment event và RabbitMQ notification task. Hai queue công việc có bốn consumer
-mỗi queue, không còn message ready/unacked sau test. Một lần chạy cố tình gom
+mỗi queue khi HPA ở bốn replica và tự giảm theo workload; không còn message
+ready/unacked sau test. Một lần chạy cố tình gom
 mọi VU vào một NAT IP bị rate-limit 300 request/phút; profile chuẩn dùng dải
 benchmark `198.18.0.0/15` để mô phỏng các client độc lập.
 
 Mỗi FastAPI service xuất RED metrics tại `/metrics`, trace và metric OTLP tới
-Collector; trace đi Tempo, metric được Collector expose cho Prometheus. Waypoint
+Collector; trace đi Tempo, metric được Collector expose cho Prometheus. Sau bài
+test, Prometheus có series `production/<service>` của đủ 10 service, p95 gateway
+225,87 ms và tỷ lệ 5xx bằng 0; Tempo trả trace thật của gateway/auth. ServiceMonitor
+scrape trực tiếp pod đã được bỏ để không phá mTLS STRICT. Waypoint
 Ambient được nâng HPA 2–4 và PDB sau khi test phát hiện một replica có reset khi
 đồng thời proxy request lồng nhau; sau khi scale, 100/100 catalog và 100/100
 search liên tiếp đều HTTP 200.

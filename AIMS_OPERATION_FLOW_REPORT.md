@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 13/09/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 14/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
@@ -458,7 +458,7 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
 | Argo CD | `Synced/Healthy`; verifier đối chiếu full revision Git hiện hành ở mỗi lần chạy |
-| Source runtime | 10 image service độc lập + frontend, digest được promotion từ source revision `7f2759c70783` |
+| Source runtime | 10 image service độc lập + frontend, digest được promotion từ source revision `e5c5943dd1c3` |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 | Velero/DR | backup 1.158/1.158, 32/32 PVB; restore drill 12 ConfigMap, cô lập và cleanup |
@@ -532,14 +532,20 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
 Kịch bản chuẩn nằm ở [`tests/load/aims-production.js`](tests/load/aims-production.js).
 Chế độ mặc định chỉ đọc catalog/search/cart; `ENABLE_CHECKOUT=true` chạy thêm
 một giao dịch synthetic qua Postgres outbox → Kafka → inventory → RabbitMQ →
-payment/notification. Lần nghiệm thu 13/09 đạt 657/657 check, 658 request, 0%
-HTTP/business failure, p95 305,11 ms, p99 413,65 ms và checkout 9,1 giây ở tối
+payment/notification. Lần nghiệm thu 14/09 đạt 663/663 check, 664 request, 0%
+HTTP/business failure, p95 303,72 ms, p99 471,31 ms và checkout 9,08 giây ở tối
 đa 11 VU. Profile cấp một IP benchmark riêng cho mỗi VU để không biến load test
 thành phép thử duy nhất của quota Redis 300 request/phút trên một NAT IP.
 
 Mười canary cùng release được chặn tại 50% cho tới khi Prometheus xác nhận SLO;
 10/10 AnalysisRun gần nhất đều `Successful`. Waypoint có HPA 2–4 và PDB; phép
 thử 100 catalog + 100 search sau khi scale đạt 200/200 HTTP 200.
+
+Mười service đồng thời xuất trace và metric bằng OTLP. Collector HA expose một
+điểm scrape cho Prometheus với `job=production/<service>`; cấu hình `honorLabels`
+giữ đúng danh tính service và chỉ chọn Service `base`, tránh scrape trùng qua
+Service headless. Nghiệm thu thấy đủ 10 service, gateway p95 225,87 ms, 5xx bằng
+0 và Tempo trả trace theo `resource.service.name=api-gateway`.
 
 ## 13. Giới hạn có chủ đích của lab
 
