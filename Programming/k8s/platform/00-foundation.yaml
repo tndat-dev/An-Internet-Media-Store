@@ -112,6 +112,44 @@ spec:
       port: 15008
       protocol: HBONE
 ---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aims-waypoint
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aims-waypoint
+  minReplicas: 2
+  maxReplicas: 4
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aims-waypoint
+  namespace: production
+  labels:
+    app.kubernetes.io/part-of: aims
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: aims-waypoint
+---
 apiVersion: v1
 kind: ResourceQuota
 metadata:
