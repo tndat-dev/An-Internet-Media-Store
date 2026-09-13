@@ -45,7 +45,14 @@ export const options = {
 };
 
 function jsonHeaders(extra = {}) {
-  return { headers: { "Content-Type": "application/json", ...extra } };
+  return { headers: { "Content-Type": "application/json", ...clientHeaders(), ...extra } };
+}
+
+function clientHeaders() {
+  // 198.18.0.0/15 is reserved for benchmark traffic. One address per VU models
+  // independent Internet clients instead of accidentally testing one NAT-IP
+  // rate-limit bucket for the entire load generator.
+  return { "X-Forwarded-For": `198.18.${Math.floor(__VU / 250)}.${(__VU % 250) + 1}` };
 }
 
 function expect(response, expected, label) {
@@ -56,15 +63,15 @@ function expect(response, expected, label) {
 
 export function browse() {
   group("browse catalog and search", () => {
-    const products = http.get(`${baseUrl}/api/products/?page_size=20`, { tags: { name: "GET /api/products/" } });
+    const products = http.get(`${baseUrl}/api/products/?page_size=20`, { headers: clientHeaders(), tags: { name: "GET /api/products/" } });
     expect(products, 200, "catalog list");
 
-    const search = http.get(`${baseUrl}/api/search/?q=book&limit=10`, { tags: { name: "GET /api/search/" } });
+    const search = http.get(`${baseUrl}/api/search/?q=book&limit=10`, { headers: clientHeaders(), tags: { name: "GET /api/search/" } });
     expect(search, 200, "search");
 
     const token = `k6-read-${runId}-${__VU}-${__ITER}`;
     const cart = http.get(`${baseUrl}/api/cart/`, {
-      headers: { "X-Cart-Token": token },
+      headers: { ...clientHeaders(), "X-Cart-Token": token },
       tags: { name: "GET /api/cart/ empty" },
     });
     expect(cart, 200, "empty cart read");
@@ -77,7 +84,7 @@ export function checkout() {
   const token = `k6-checkout-${runId}-${__VU}-${__ITER}`;
 
   group("checkout and asynchronous event chain", () => {
-    const catalog = http.get(`${baseUrl}/api/products/?page_size=20`, { tags: { name: "GET /api/products/ checkout" } });
+    const catalog = http.get(`${baseUrl}/api/products/?page_size=20`, { headers: clientHeaders(), tags: { name: "GET /api/products/ checkout" } });
     if (!expect(catalog, 200, "checkout catalog")) return;
     const products = catalog.json("results") || [];
     const product = products.find((item) => item.status === "ACTIVE") || products[0];
@@ -87,7 +94,7 @@ export function checkout() {
     }
     const productId = product.product_id || product.productId || product.id;
 
-    const stock = http.get(`${baseUrl}/api/inventory/${productId}`, { tags: { name: "GET /api/inventory/:id" } });
+    const stock = http.get(`${baseUrl}/api/inventory/${productId}`, { headers: clientHeaders(), tags: { name: "GET /api/inventory/:id" } });
     if (stock.status === 404 || Number(stock.json("available") || 0) < 1) {
       const adjusted = http.post(
         `${baseUrl}/api/inventory/${productId}/adjust`,
@@ -99,7 +106,7 @@ export function checkout() {
       expect(stock, 200, "inventory read");
     }
 
-    const cartHeaders = { "X-Cart-Token": token };
+    const cartHeaders = { ...clientHeaders(), "X-Cart-Token": token };
     const added = http.post(
       `${baseUrl}/api/cart/items/`,
       JSON.stringify({ productId, quantity: 1 }),
@@ -149,6 +156,7 @@ export function checkout() {
 
     sleep(3);
     const notification = http.get(`${baseUrl}/api/notifications/healthz`, {
+      headers: clientHeaders(),
       tags: { name: "GET /api/notifications/healthz" },
     });
     const notificationHealthy = expect(notification, 200, "notification health");
@@ -166,6 +174,7 @@ export function checkout() {
     }
     if (cancelToken) {
       http.post(`${baseUrl}/api/orders/${cancelToken}/cancel/`, null, {
+        headers: clientHeaders(),
         tags: { name: "POST /api/orders/:token/cancel/" },
       });
     }
