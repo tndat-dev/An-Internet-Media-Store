@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Default is read-only. Set APPLY=true to evict one pod at a time until the
-# aggregate AIMS microservice count is equal across all worker nodes.
+# aggregate AIMS microservice count differs by at most one across worker nodes.
 NAMESPACE=${NAMESPACE:-production}
 SELECTOR=${SELECTOR:-aims.hust.vn/workload-group=microservices}
 APPLY=${APPLY:-false}
@@ -19,7 +19,10 @@ total=$(jq '[.items[] | select(
   and ((.status.containerStatuses // []) | all(.ready == true))
 )] | length' \
   <<<"${pod_json}")
-target=$((total / ${#nodes[@]}))
+# Use the ceiling: 20 replicas on 3 workers must converge to 7/7/6. A floor
+# target of 6 can never be satisfied and makes the loop keep evicting healthy
+# pods after the optimal placement has already been reached.
+target=$(((total + ${#nodes[@]} - 1) / ${#nodes[@]}))
 
 show_counts() {
   kubectl -n "${NAMESPACE}" get pods -l "${SELECTOR}" -o json | \
