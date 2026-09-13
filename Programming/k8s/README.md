@@ -1,12 +1,12 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu gần nhất 12/09/2026: 3 control-plane + 3
-worker, 10 Argo Rollout/20 pod microservice độc lập và 2 frontend pod,
+`production`. Trạng thái nghiệm thu gần nhất 13/09/2026: 3 control-plane + 3
+worker, 10 Argo Rollout có HPA 2–4 replica và 2 frontend pod,
 CloudNativePG 3/3, Kafka KRaft, RabbitMQ, Redis, MinIO, OpenSearch và Velero hoạt
 động. PSA Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
-Microservice được phân bố 6/7/7 trên ba worker, hai frontend pod nằm trên hai
-worker khác nhau.
+Microservice dùng topology spread trên ba worker, hai frontend pod nằm trên hai
+worker khác nhau; Ambient waypoint có HPA 2–4 và PDB.
 
 Repository chuẩn trên workstation là `/home/tndat/An-Internet-Media-Store`.
 Control-plane chính giữ clone đầy đủ tại `/home/dat/An-Internet-Media-Store` và
@@ -148,9 +148,9 @@ tại [`../../services`](../../services): `api-gateway`, `auth`, `catalog`,
 `cart`, `order`, `payment`, `inventory`, `notification`,
 `search-recommendation`, `security-telemetry`. Bảy service stateful sở hữu schema
 PostgreSQL riêng; giao tiếp liên service hiện đi qua HTTP contract và Kafka
-event log/outbox thay vì ORM chéo. RabbitMQ cluster và hai queue đã sẵn sàng ở
-tầng platform, nhưng app user, exchange/binding/DLQ và consumer manual-ack vẫn
-là phần mở rộng tiếp theo. Contract event versioned nằm ở
+event log/outbox thay vì ORM chéo. RabbitMQ có app user least-privilege từ
+Vault/ESO, direct exchange, binding, durable task queue, DLQ và consumer
+manual-ack trong payment/notification. Contract event versioned nằm ở
 [`../../contracts/asyncapi/aims-events.yaml`](../../contracts/asyncapi/aims-events.yaml).
 
 ## Dashboard quản trị giao tiếp

@@ -19,9 +19,9 @@ spec:
           address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
           query: |
             (
-              sum(rate(http_requests_total{namespace="production",service={{ `"{{args.service-name}}"` }},status=~"5.."}[2m]))
+              sum(rate(http_server_request_duration_seconds_count{job="production/{{ `{{args.service-name}}` }}",http_response_status_code=~"5.."}[2m]))
               /
-              clamp_min(sum(rate(http_requests_total{namespace="production",service={{ `"{{args.service-name}}"` }}}[2m])), 0.001)
+              clamp_min(sum(rate(http_server_request_duration_seconds_count{job="production/{{ `{{args.service-name}}` }}"}[2m])), 0.001)
             ) or vector(0)
     - name: http-p95-seconds
       interval: 30s
@@ -35,6 +35,6 @@ spec:
             histogram_quantile(
               0.95,
               sum by (le) (
-                rate(http_request_duration_seconds_bucket{namespace="production",service={{ `"{{args.service-name}}"` }}}[2m])
+                rate(http_server_request_duration_seconds_bucket{job="production/{{ `{{args.service-name}}` }}"}[2m])
               )
             ) or vector(0)

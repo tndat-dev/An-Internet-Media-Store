@@ -163,6 +163,12 @@ spec:
               value: {{ $.Values.integrations.otlpEndpoint | quote }}
             - name: OTEL_SERVICE_NAME
               value: {{ .name | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: production
             {{- if .kafkaConsumerTopic }}
             - name: KAFKA_CONSUMER_TOPIC
               value: {{ .kafkaConsumerTopic | quote }}

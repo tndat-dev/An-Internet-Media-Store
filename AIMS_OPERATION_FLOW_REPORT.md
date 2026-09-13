@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 12/09/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 13/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
@@ -47,7 +47,7 @@ flowchart TB
     API --> PG[(CloudNativePG 3)]
     API --> RD[(Redis + Sentinel 3)]
     API --> KF[(Kafka KRaft 3<br/>event log)]
-    API -.-> RMQ[(RabbitMQ 3<br/>platform Ready, app pending)]
+    API --> RMQ[(RabbitMQ 3<br/>task queue + ack + DLQ)]
     API --> KC[Keycloak OIDC]
     API --> OT[OpenTelemetry Collector]
 
@@ -269,12 +269,13 @@ Kafka đã được business code sử dụng thật. Order ghi transactional ou
 phát `OrderCreated`; inventory consume idempotent, giữ hàng rồi phát
 `InventoryReserved`/`InventoryRejected`; payment consume event và phát
 `PaymentCompleted`; notification consume event bằng consumer group riêng.
-RabbitMQ cluster cùng hai Queue CR đã Ready nhưng source hiện chưa có AMQP
-publisher/consumer, app credential chưa được topology operator cấp quyền và
-exchange/binding/DLQ chưa được khai báo đầy đủ. Vì vậy chưa coi nhánh RabbitMQ là
-business flow end-to-end.
+RabbitMQ cluster, app `User`/`Permission`, exchange, binding, queue và DLQ đều do
+operator quản lý. Payment và notification dùng `aio-pika` robust connection,
+persistent message, QoS/prefetch, manual ack sau transaction/delivery và reject
+không requeue để broker chuyển lỗi sang DLQ. Credential chỉ đi Vault → ESO →
+Secret/runtime; source và manifest không chứa password.
 
-### 5.2 Luồng event đang chạy và nhánh task dự kiến
+### 5.2 Luồng event và task đang chạy
 
 ```mermaid
 flowchart LR
@@ -285,11 +286,10 @@ flowchart LR
     P -->|PaymentCompleted / Failed| KB
     KB --> N[notification-service]
 
-    P -.->|chưa nối: payment task| R[RabbitMQ quorum queue]
-    N -.->|chưa nối: email/SMS task| R
-    R -.->|cần manual ack| W[worker]
-    W -.->|cần retry giới hạn| R
-    W -.->|cần DLX/binding| D[DLQ]
+    P -->|payment.execute, persistent| R[RabbitMQ task exchange]
+    N -->|notification.deliver, persistent| R
+    R -->|manual ack| W[consumer]
+    W -->|reject lỗi| D[DLX + DLQ]
 
     KB --> S[(consumer replay/audit)]
 ```
@@ -298,8 +298,8 @@ Kafka giữ business event lâu, có partition/offset và replay; RabbitMQ đi�
 task cần ack, retry và DLQ. Không dùng Kafka thay task queue và không dùng
 RabbitMQ làm immutable event log. Strimzi chạy KRaft ba dual-role node, không có
 ZooKeeper; các topic business versioned và `aims-security-telemetry` có
-replication factor 3. Các cạnh nét đứt là kiến trúc đích, chưa phải bằng chứng
-runtime của release hiện tại.
+replication factor 3. K6 checkout và queue consumer count là bằng chứng runtime
+cho cả event backbone lẫn task queue, không chỉ là sơ đồ mong muốn.
 
 ## 6. Luồng identity, secret và PKI
 
@@ -445,12 +445,12 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Hạng mục | Trạng thái chốt |
 |---|---|
 | Node | 6/6 Ready, 3 control-plane + 3 worker |
-| AIMS | 10/10 Rollout, 20/20 pod microservice, 2/2 frontend |
-| Phân bố microservice | worker1/worker3/worker4 = 6/7/7 |
+| AIMS | 10/10 Rollout Healthy; HPA 2–4 replica/service, 2/2 frontend |
+| Phân bố microservice | topology spread trên ba worker; HPA sở hữu `/spec/replicas` và Argo bỏ qua đúng field này |
 | CloudNativePG | 3/3, healthy |
 | Kafka KRaft | Ready, 3 broker trên ba worker |
-| RabbitMQ | 3/3, `AllReplicasReady=True` |
-| Redis/Sentinel | 3/3 + 3/3 |
+| RabbitMQ | 3/3, `AllReplicasReady=True`; 12/12 topology CR Ready, payment/notification consumer hoạt động |
+| Redis/Sentinel | 3/3 + 3/3, một master + hai replica link up, mỗi nhóm trải ba worker |
 | MinIO | `Initialized`, health `green`, 4 PVC × 50 GiB |
 | OpenSearch | 3/3 |
 | Vault | 3/3 Ready và unsealed |
@@ -458,7 +458,7 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
 | Argo CD | `Synced/Healthy`; verifier đối chiếu full revision Git hiện hành ở mỗi lần chạy |
-| Source runtime | 20 pod từ 10 image service độc lập + 2 frontend, cùng source revision |
+| Source runtime | 10 image service độc lập + frontend, digest được promotion từ source revision `7f2759c70783` |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 | Velero/DR | backup 1.158/1.158, 32/32 PVB; restore drill 12 ConfigMap, cô lập và cleanup |
@@ -527,6 +527,20 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
 - không còn pod non-ready/Unknown, Job đang failed hoặc PVC unbound;
 - HTTP/HTTPS đều trả 200 qua Gateway, không chỉ nhìn condition `Programmed`.
 
+### 12.4 Mô phỏng request production-like
+
+Kịch bản chuẩn nằm ở [`tests/load/aims-production.js`](tests/load/aims-production.js).
+Chế độ mặc định chỉ đọc catalog/search/cart; `ENABLE_CHECKOUT=true` chạy thêm
+một giao dịch synthetic qua Postgres outbox → Kafka → inventory → RabbitMQ →
+payment/notification. Lần nghiệm thu 13/09 đạt 657/657 check, 658 request, 0%
+HTTP/business failure, p95 305,11 ms, p99 413,65 ms và checkout 9,1 giây ở tối
+đa 11 VU. Profile cấp một IP benchmark riêng cho mỗi VU để không biến load test
+thành phép thử duy nhất của quota Redis 300 request/phút trên một NAT IP.
+
+Mười canary cùng release được chặn tại 50% cho tới khi Prometheus xác nhận SLO;
+10/10 AnalysisRun gần nhất đều `Successful`. Waypoint có HPA 2–4 và PDB; phép
+thử 100 catalog + 100 search sau khi scale đạt 200/200 HTTP 200.
+
 ## 13. Giới hạn có chủ đích của lab
 
 - Đây là production-like lab, không phải SLA enterprise; certificate ingress
@@ -541,8 +555,8 @@ Một lần đồng bộ chỉ được coi là hoàn thành khi đồng thời 
 - SLSA provenance tự sinh trong job chỉ được tuyên bố tương thích Build L1;
   mức L2/L3 cần builder độc lập/hardened sinh provenance.
 - Backup MinIO cần replication/off-cluster nếu muốn chống mất toàn cụm.
-- RabbitMQ cần `User`/`Permission`, Exchange/Binding/DLQ và AMQP publisher/
-  consumer manual-ack trong payment/notification trước khi gọi là task flow E2E.
+- Notification adapter cuối hiện ghi log có cấu trúc; SMTP/SMS/webhook thật cần
+  credential nhà cung cấp bên ngoài và không thuộc phạm vi lab.
 
 Các giới hạn này không làm sai mục tiêu học tập: cụm hiện chứng minh đầy đủ
 orchestration, operator, HA, policy, supply-chain wiring, runtime security,

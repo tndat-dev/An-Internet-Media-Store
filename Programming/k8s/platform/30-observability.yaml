@@ -94,28 +94,6 @@ spec:
       interval: 30s
 ---
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: aims-microservices
-  namespace: monitoring
-  labels:
-    release: monitoring
-    app.kubernetes.io/part-of: aims
-spec:
-  namespaceSelector:
-    matchNames:
-      - production
-  selector:
-    matchLabels:
-      app.kubernetes.io/part-of: aims
-      app.kubernetes.io/component: backend
-  endpoints:
-    - port: http
-      path: /metrics
-      interval: 15s
-      scrapeTimeout: 5s
----
-apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: aims-service-slos
@@ -127,21 +105,28 @@ spec:
   groups:
     - name: aims.availability
       rules:
-        - alert: AIMSServiceTargetDown
-          expr: up{namespace="production",service=~"api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service"} == 0
+        - alert: AIMSTelemetryCollectorDown
+          expr: sum(up{namespace="observability",service="otel-collector-collector"}) < 1
           for: 2m
           labels:
             severity: warning
           annotations:
-            summary: "AIMS metrics target {{ $labels.service }} is down"
+            summary: "AIMS OpenTelemetry metrics collector is unavailable"
+        - alert: AIMSTelemetryMetricsRejected
+          expr: sum(rate(otelcol_receiver_refused_metric_points_total[5m])) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenTelemetry Collector is rejecting AIMS metric points"
         - alert: AIMSHighHTTP5xxRatio
           expr: |
-            sum by (service) (rate(http_requests_total{namespace="production",status=~"5.."}[5m]))
+            sum by (job) (rate(http_server_request_duration_seconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)",http_response_status_code=~"5.."}[5m]))
             /
-            clamp_min(sum by (service) (rate(http_requests_total{namespace="production"}[5m])), 0.001)
+            clamp_min(sum by (job) (rate(http_server_request_duration_seconds_count{job=~"production/(api-gateway|auth-service|catalog-service|cart-service|order-service|payment-service|inventory-service|notification-service|search-recommendation-service|security-telemetry-service)"}[5m])), 0.001)
             > 0.05
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "AIMS service {{ $labels.service }} exceeds the 5% HTTP 5xx SLO"
+            summary: "AIMS service {{ $labels.job }} exceeds the 5% HTTP 5xx SLO"

@@ -63,6 +63,14 @@ done
 kubectl apply --server-side --force-conflicts -f "$root/platform/21-gatekeeper-constraint.yaml"
 
 kubectl apply --server-side --force-conflicts -f "$root/platform/30-observability.yaml"
+# Application metrics are pushed over OTLP. Remove the legacy direct pod
+# scrape and the temporary Ambient enrollment that were only needed by it.
+kubectl -n monitoring delete servicemonitor aims-microservices --ignore-not-found
+if [[ "$(kubectl get namespace monitoring -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null)" == ambient ]]; then
+  kubectl label namespace monitoring istio.io/dataplane-mode-
+  kubectl -n monitoring rollout restart statefulset/monitoring-kube-prometheus-prometheus
+  kubectl -n monitoring rollout status statefulset/monitoring-kube-prometheus-prometheus --timeout=5m
+fi
 kubectl apply --server-side --force-conflicts -f "$root/platform/50-backup.yaml"
 kubectl apply --server-side --force-conflicts -f "$root/platform/60-backup-schedule.yaml"
 

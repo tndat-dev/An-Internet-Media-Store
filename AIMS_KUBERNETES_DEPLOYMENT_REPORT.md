@@ -110,16 +110,17 @@ flowchart TB
 | `catalog-service` | sản phẩm, media metadata | PostgreSQL | Kafka business | read-only theo lộ trình |
 | `cart-service` | giỏ hàng | Redis/PostgreSQL | Kafka | cache + mTLS |
 | `order-service` | vòng đời đơn hàng | PostgreSQL | Kafka business | canary |
-| `payment-service` | điều phối thanh toán | PostgreSQL | Kafka; RabbitMQ ack/DLQ là bước tiếp theo | runc + seccomp |
+| `payment-service` | điều phối thanh toán | PostgreSQL | Kafka event → RabbitMQ `payment.tasks`, manual ack/DLQ | runc + seccomp |
 | `inventory-service` | tồn kho/reservation | PostgreSQL | Kafka | idempotency cần bảo đảm |
-| `notification-service` | email/thông báo | PostgreSQL | Kafka; RabbitMQ ack/DLQ là bước tiếp theo | runc + seccomp |
+| `notification-service` | email/thông báo | PostgreSQL | Kafka event → RabbitMQ `notification.tasks`, manual ack/DLQ | runc + seccomp |
 | `search-recommendation-service` | tìm kiếm/gợi ý | PostgreSQL | Kafka interaction | read-only rootfs |
 | `security-telemetry-service` | audit, feature/model anomaly | OpenSearch/Kafka | Kafka security topic | Localhost seccomp + AppArmor |
 
 Mười service có source, dependency, Dockerfile, test và image GHCR pin digest
 riêng. Bảy service stateful sở hữu PostgreSQL schema riêng; giao tiếp xuyên
 domain dùng HTTP contract, Kafka event versioned và outbox/idempotency. RabbitMQ
-task ack/DLQ đã có cluster/Queue CR nhưng chưa nối vào business source. Backend
+task ack/DLQ dùng app credential từ Vault/ESO, exchange/binding do Topology
+Operator quản lý và consumer idempotent/manual-ack trong source. Backend
 Django cũ chỉ còn là artifact tương thích trong pipeline,
 không còn là image của 10 Rollout live.
 
@@ -350,8 +351,9 @@ PostgreSQL legacy được giữ tạm thời để rollback, không còn nhận
 - Topic `aims-business-events`: 6 partition, RF=3, min ISR=2.
 - Topic `aims-security-telemetry`: 6 partition, RF=3, min ISR=2.
 - KafkaUser `aims-services`: TLS + simple ACL theo prefix `aims-`.
-- RabbitMQ 3 replica; queue payment/notification durable đã Ready. App user,
-  Exchange/Binding/DLQ và consumer manual-ack chưa hoàn tất.
+- RabbitMQ 3 replica; app `User`/`Permission`, hai durable direct exchange, hai
+  queue công việc, hai DLQ và bốn binding đều `Ready`. Payment/notification
+  publish persistent message, manual ack sau xử lý và reject lỗi về DLQ.
 
 ### 5.6 Network và mesh
 
@@ -692,6 +694,34 @@ object, 32/32 PodVolumeBackup và 0 error. Restore
 `aims-config-drill-20260912140426` phục hồi 12 ConfigMap vào namespace cô lập,
 không tạo Pod, Secret, PVC hoặc controller và cleanup namespace thành công.
 
+### 9.4 Nghiệm thu reliability và request ngày 13/09/2026
+
+Release source `7f2759c70783` được GitHub Actions run `34733240637` test, build
+12 image, Trivy scan, Cosign keyless sign, đính CycloneDX SBOM và SLSA v1
+provenance trước khi promotion digest. Mười AnalysisRun của Argo Rollouts đều
+`Successful` với gate tỷ lệ HTTP 5xx tối đa 5% và p95 tối đa 1,5 giây.
+
+Redis được kiểm tra từ `INFO replication`, không dựa riêng vào status CR: đúng
+một master, hai replica `master_link_status=up`, master thấy hai connected
+slave, ba Sentinel cùng quorum và sáu pod Redis/Sentinel trải đều ba worker.
+API Gateway discovery đúng service Sentinel do operator sinh và health báo
+`redisRateLimiter=ready`.
+
+Profile [`tests/load/aims-production.js`](tests/load/aims-production.js) chạy 10
+VU browse đồng thời một checkout synthetic. Kết quả đạt 657/657 check, 658 HTTP
+request, 0% failure, p95 305,11 ms, p99 413,65 ms; checkout E2E hoàn thành 9,1
+giây. Luồng ghi đi qua order outbox, Kafka, inventory, RabbitMQ payment task,
+payment event và RabbitMQ notification task. Hai queue công việc có bốn consumer
+mỗi queue, không còn message ready/unacked sau test. Một lần chạy cố tình gom
+mọi VU vào một NAT IP bị rate-limit 300 request/phút; profile chuẩn dùng dải
+benchmark `198.18.0.0/15` để mô phỏng các client độc lập.
+
+Mỗi FastAPI service xuất RED metrics tại `/metrics`, trace và metric OTLP tới
+Collector; trace đi Tempo, metric được Collector expose cho Prometheus. Waypoint
+Ambient được nâng HPA 2–4 và PDB sau khi test phát hiện một replica có reset khi
+đồng thời proxy request lồng nhau; sau khi scale, 100/100 catalog và 100/100
+search liên tiếp đều HTTP 200.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |
@@ -706,7 +736,7 @@ không tạo Pod, Secret, PVC hoặc controller và cleanup namespace thành cô
 | Đã xử lý | Argo CD repoURL | trỏ GitHub `tndat-dev/An-Internet-Media-Store`, tự sync từ `main` |
 | Trung bình | Rekor/keyless phụ thuộc GitHub OIDC/Internet | giữ artifact/attestation và kế hoạch mirror registry |
 | Thấp | Falco và Tetragon trùng một phần tín hiệu | phân vai rule/alert để giảm noise |
-| Trung bình | RabbitMQ mới Ready ở tầng cluster/Queue CR, chưa có business consumer | thêm User/Permission, DLX/binding và manual-ack/idempotency test |
+| Đã xử lý | RabbitMQ trước đây chỉ Ready ở tầng cluster/Queue CR | User/Permission, exchange/binding/DLQ và consumer manual-ack đã chạy E2E |
 
 ## 11. Bộ thực hành CKS
 

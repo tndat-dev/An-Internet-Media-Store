@@ -3,7 +3,7 @@
 **Phạm vi:** Kafka làm event backbone cho business event và security telemetry  
 **Nền tảng:** Strimzi Kafka Operator, Kafka 4.3.0, KRaft  
 **Namespace:** `production`  
-**Ngày chốt:** 12/09/2026
+**Ngày chốt:** 13/09/2026
 
 Namespace `production` hiện Enforce PSA `restricted:latest`. Ba broker KRaft
 vẫn Ready sau lần reconcile chart v0.3/CKS; TLS user, ACL, RF=3 và min ISR=2
@@ -17,10 +17,11 @@ Kafka được dùng làm event log chung cho hai miền:
 - security telemetry: Tetragon event, application audit và output mô hình
   LSTM/Isolation Forest.
 
-Về kiến trúc đích, Kafka không nên thay task queue payment/notification: task
-cần ack, retry và DLQ sẽ chuyển qua RabbitMQ, còn Kafka giữ event có retention
-và replay. Release hiện tại vẫn đưa chuỗi event payment/notification qua Kafka;
-nhánh AMQP chưa nối vào source.
+Kafka không thay task queue payment/notification: Kafka giữ event có retention
+và replay, còn RabbitMQ nhận task cần ack và DLQ. Release hiện tại đã nối hai
+lớp này: inventory event trên Kafka tạo `payment.tasks`; payment hoàn tất phát
+event Kafka, sau đó notification tạo `notification.tasks`. Consumer AMQP xử lý
+idempotent và chỉ manual-ack sau khi transaction/delivery thành công.
 
 ## 2. Lý thuyết Kafka
 

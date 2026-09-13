@@ -734,9 +734,8 @@ apply sau khi nhánh `main` chứa đầy đủ chart. Pipeline có thể đặt
 Các điểm dưới đây là giới hạn thật, không được mô tả thành capability đã hoàn tất:
 
 1. Mười service đã có source/image/schema hoặc state boundary riêng. RabbitMQ
-   mới hoàn tất cluster và hai Queue CR; payment/notification vẫn giao tiếp bằng
-   Kafka, chưa có AMQP publisher/consumer manual-ack, app User/Permission và
-   Exchange/Binding/DLQ đầy đủ.
+   đã có app User/Permission, Exchange/Binding, queue/DLQ và consumer
+   payment/notification manual-ack; Kafka giữ vai trò event log/replay.
 2. GitHub Actions + GHCR + Argo CD đã chạy CI/CD end-to-end. Jenkins hiện là môi
    trường thực hành dự phòng, chưa giữ registry/signing credential production.
 3. Keycloak đang chạy nhưng kubectl OIDC chưa được bật trên ba kube-apiserver.
@@ -1043,10 +1042,9 @@ phải drift desired state.
 Báo cáo [`AIMS_OPERATION_FLOW_REPORT.md`](AIMS_OPERATION_FLOW_REPORT.md) mô tả
 riêng các luồng GitOps/reconcile, ingress Gateway API, Ambient east-west, OIDC và
 secret, checkout/payment, Kafka event log, RabbitMQ task queue, security
-telemetry, OpenTelemetry, SLSA/Cosign/Kyverno và Velero/MinIO. Báo cáo cũng ghi
-rõ ranh giới hiện tại: chín Rollout là chín deployment unit dùng chung Django
-image; endpoint Kafka/RabbitMQ đã được inject nhưng publisher/consumer nghiệp vụ
-chưa được hiện thực trong source, nên không tuyên bố event-driven end-to-end.
+telemetry, OpenTelemetry, SLSA/Cosign/Kyverno và Velero/MinIO. Trạng thái hiện
+tại có 10 Rollout dùng 10 image/source độc lập; Kafka outbox/event và RabbitMQ
+task manual-ack/DLQ đã được kiểm tra end-to-end.
 
 ### 14.13 Truy cập dashboard quản trị giao tiếp
 
@@ -1195,10 +1193,9 @@ verify rồi mới commit digest cho Argo CD.
 
 Release source `d62f093f068053b8afe92a3255f70eced89d3478` đã chạy 10/10
 Rollout, 20/20 replica và hai frontend. E2E live đã chứng minh đăng ký/đổi mật
-khẩu/login qua Keycloak, catalog → cart → order → inventory reservation →
-payment → notification qua Kafka, tìm kiếm/gợi ý và phát hiện anomaly bằng
-IsolationForest. RabbitMQ hiện là hạ tầng task queue đã Ready nhưng chưa tham gia
-business flow. Bảy schema được sở hữu riêng: `cart_service`,
+khẩu/login qua Keycloak, catalog → cart → order → inventory reservation qua
+Kafka → RabbitMQ payment task → payment event Kafka → RabbitMQ notification
+task, tìm kiếm/gợi ý và phát hiện anomaly bằng IsolationForest. Bảy schema được sở hữu riêng: `cart_service`,
 `catalog_service`, `inventory_service`, `order_service`, `payment_service`,
 `search_recommendation_service` và `security_telemetry_service`.
 
@@ -1243,10 +1240,10 @@ service. Audit live trả 6/6 node Ready, 228 pod Running, 6 pod Succeeded, khô
 có pod lỗi/unready, controller thiếu replica, failed Job hay PVC unbound; cả
 `verify-aims.sh` và `verify-cks-lab.sh` đều PASS.
 
-Audit sâu cũng xác nhận RabbitMQ runtime credential của app chưa authenticate
-được và source không chứa AMQP client. Đây là khoảng trống chức năng cần hoàn
-thiện nếu bài lab phải chứng minh payment/notification task queue manual ack +
-DLQ; không cần bổ sung thêm một loại broker hoặc service mesh mới.
+Audit ngày 13/09 xác nhận 12/12 RabbitMQ topology CR Ready, credential ứng dụng
+authenticate được, mỗi task queue có bốn consumer và queue/DLQ trở về 0 sau bài
+checkout. Source payment/notification dùng kết nối robust, persistent message,
+prefetch, idempotency, manual ack và reject lỗi sang DLQ.
 
 Run supply-chain sau audit đã phát hiện base `python:3.12-slim` cũ mang
 `perl-base 5.40.1-6` với ba CVE Critical đã có bản vá. Dockerfile backend và cả

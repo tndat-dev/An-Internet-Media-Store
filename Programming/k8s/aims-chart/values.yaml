@@ -138,7 +138,10 @@ integrations:
 
 resources:
   requests:
-    cpu: 100m
+    # A Python/OTel process idles around 120-160m on this lab. A realistic
+    # request prevents the HPA from pinning every service at maxReplicas while
+    # still leaving headroom for burst-driven scaling.
+    cpu: 200m
     memory: 192Mi
   limits:
     cpu: 750m
