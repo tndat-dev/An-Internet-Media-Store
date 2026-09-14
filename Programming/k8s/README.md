@@ -206,8 +206,11 @@ và typecheck PASS, YAML pipeline parse PASS, Docker build backend/frontend PASS
 Helm lint/render PASS. `config/settings.py` giữ environment làm nguồn ưu tiên để
 CI `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
 
-Release `e5c5943dd1c3` qua GitHub Actions run `34761470986` và promotion
-`74a7c78`; bài k6 checkout đạt 663/663 check, 0% lỗi, p95 303,72 ms. Metric OTLP
+Release frontend/API mới nhất `fcd69b2eea74` qua GitHub Actions run
+`34870500992` và promotion `48e4312`; API base browser đã được cố định về
+same-origin `/api`. Catalog live trả JSON với 60 sản phẩm và đăng ký synthetic
+qua Gateway/Keycloak trả user `ACTIVE/CUSTOMER`, sau đó cleanup thành công.
+Release tải trước đó đạt 663/663 check, 0% lỗi, p95 303,72 ms. Metric OTLP
 của đủ 10 service hiện được Prometheus scrape tại Collector thay vì scrape pod
 trực tiếp; Tempo đã trả trace thật của API Gateway.
 

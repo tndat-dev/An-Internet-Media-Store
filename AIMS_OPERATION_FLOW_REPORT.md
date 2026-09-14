@@ -458,7 +458,7 @@ Kyverno và Gatekeeper từ chối pod vi phạm mà không tạo workload rác.
 | Longhorn | 29/29 volume healthy, gồm PVC Jenkins |
 | Jenkins | controller Ready, PVC Bound, chỉ có quyền tạo agent Pod trong `jenkins` |
 | Argo CD | `Synced/Healthy`; verifier đối chiếu full revision Git hiện hành ở mỗi lần chạy |
-| Source runtime | 10 image service độc lập + frontend, digest được promotion từ source revision `e5c5943dd1c3` |
+| Source runtime | 10 image service độc lập + frontend, digest được promotion từ source revision `fcd69b2eea74` |
 | Pod/Job/PVC | 0 pod lỗi hiện tại, 0 Job failed hiện tại, 0 PVC unbound |
 | Gateway | HTTP và HTTPS được verifier sample lặp, đều HTTP 200 |
 | Velero/DR | backup 1.158/1.158, 32/32 PVB; restore drill 12 ConfigMap, cô lập và cleanup |
@@ -554,6 +554,23 @@ cửa sổ bằng 0. Vì `NaN` vẫn là một series, chỉ dùng `or vector(0)
 AnalysisTemplate hiện lọc quantile bằng điều kiện tổng request rate `> 0` trước
 khi fallback về 0. Sự cố thực tế trên bốn Rollout đã được retry; bốn AnalysisRun
 mới đều Successful và ứng dụng trở lại 10/10 Healthy.
+
+### 12.6 Luồng API của frontend và đăng ký tài khoản
+
+Frontend chạy sau Gateway phải dùng API base cùng origin `/api`. Nếu biến build
+`NEXT_PUBLIC_API_BASE_URL` là chuỗi rỗng, trình duyệt sẽ gọi `/products/...` hay
+`/auth/register/...` vào chính Next.js; Next.js trả HTML nên catalog báo
+`Unexpected token '<'` và form đăng ký chỉ hiện lỗi chung dù auth-service không
+nhận request.
+
+Dockerfile và GitHub Actions hiện luôn build với `/api`; API client cũng coi
+chuỗi rỗng như chưa cấu hình, bỏ dấu `/` cuối và từ chối parse response không có
+Content-Type JSON. Form đăng ký hiển thị `detail` từ backend, ví dụ username hay
+email đã tồn tại. Release source `fcd69b2eea74`, workflow `34870500992` và commit
+promotion `48e4312` đã được triển khai. Kiểm tra qua Gateway đạt catalog HTTP
+200/JSON với 60 sản phẩm; đăng ký synthetic trả HTTP 200, user
+`ACTIVE/CUSTOMER`, sau đó user test được xóa khỏi Keycloak. Bundle live không
+còn `localhost:8000/api`; 10/10 Rollout và Argo CD đều Healthy.
 
 ## 13. Giới hạn có chủ đích của lab
 

@@ -741,6 +741,24 @@ tiếp trả 0 cho bốn service idle và giá trị số cho gateway có traffi
 retry, cả bốn AnalysisRun mới nhận `[0],[0],[0]`, đều `Successful`; Argo CD trở
 lại `Synced/Healthy`, 10/10 Rollout Healthy và không có pod lỗi.
 
+### 9.6 Khắc phục catalog JSON và đăng ký tài khoản ngày 14/09/2026
+
+Frontend production từng được build với `NEXT_PUBLIC_API_BASE_URL` rỗng. Toán
+tử nullish trong client không fallback cho chuỗi rỗng, khiến browser gọi route
+Next.js `/products/...` và `/auth/register/...` thay vì route Gateway
+`/api/products/...` và `/api/auth/register/...`. HTML HTTP 200 từ Next.js bị
+parse như JSON tạo lỗi `Unexpected token '<'`; request đăng ký không đến
+auth-service nên giao diện chỉ báo lỗi chung.
+
+Bản sửa đặt mặc định `/api` tại Dockerfile, GitHub Actions và client runtime;
+client kiểm tra Content-Type trước khi parse, còn form hiển thị `detail` trả về
+từ API. Workflow `34870500992` test và phát hành đủ 12 image, source
+`fcd69b2eea74`; commit GitOps `48e4312` pin digest mới. Nghiệm thu live qua cùng
+Gateway: catalog HTTP 200/JSON, 60 sản phẩm; đăng ký synthetic HTTP 200, trạng
+thái `ACTIVE`, role `CUSTOMER`, sau đó cleanup Keycloak thành công. Audit chốt
+6/6 node Ready, 10/10 Rollout Healthy, 40 microservice pod ready, 0 pod/Job/PVC
+lỗi và Argo CD `Synced/Healthy` đúng revision promotion.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |
