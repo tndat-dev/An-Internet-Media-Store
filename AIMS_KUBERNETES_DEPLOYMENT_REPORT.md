@@ -727,6 +727,20 @@ Ambient được nâng HPA 2–4 và PDB sau khi test phát hiện một replica
 đồng thời proxy request lồng nhau; sau khi scale, 100/100 catalog và 100/100
 search liên tiếp đều HTTP 200.
 
+### 9.5 Khắc phục bốn Rollout Degraded ngày 14/09/2026
+
+Một promotion sau đó làm `notification`, `order`, `payment` và
+`search-recommendation` chạy lại canary trong lúc không có request. Prometheus
+vẫn trả một histogram series nhưng giá trị quantile là `NaN`; nhánh
+`or vector(0)` cũ không thay thế được `NaN`, khiến ba lần đo p95 đều Failed và
+Rollout tự abort an toàn trong khi stable ReplicaSet vẫn phục vụ.
+
+Query được sửa để chỉ đánh giá quantile khi tổng request rate lớn hơn 0 bằng
+`and on() ... count > 0`; no-data/idle mới đi qua `or vector(0)`. Kiểm tra trực
+tiếp trả 0 cho bốn service idle và giá trị số cho gateway có traffic. Sau lệnh
+retry, cả bốn AnalysisRun mới nhận `[0],[0],[0]`, đều `Successful`; Argo CD trở
+lại `Synced/Healthy`, 10/10 Rollout Healthy và không có pod lỗi.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |

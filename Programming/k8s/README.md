@@ -232,16 +232,28 @@ SHOW_KUBECTL_DIFF=true FULL_VERIFY=false scripts/audit-live-sync.sh
 ```
 
 Script trả non-zero nếu sai bất kỳ tiêu chí nào: topology 3 CP + 3 worker,
-node Ready/không DiskPressure, 10 Rollout/20 pod cân bằng với max skew 1,
+node Ready/không DiskPressure, 10 Rollout với tổng replica động do HPA sở hữu và
+phân bố max skew 1,
 CNPG/Kafka/RabbitMQ/MinIO/OpenSearch, Vault/Velero, gVisor/Localhost profiles,
 frontend Helm/read-only, HTTP+HTTPS Gateway, RBAC, Kyverno/Gatekeeper,
 kube-bench/runtime detector và không còn controller legacy. Có thể đổi topology bằng `EXPECTED_READY_NODES`,
 `EXPECTED_CONTROL_PLANES`, `EXPECTED_WORKERS` khi join thêm node.
 
 `EXPECTED_SOURCE_REVISION` là tùy chọn nhưng nên luôn đặt khi nghiệm thu release.
-Verifier yêu cầu cả 20 pod microservice và hai frontend pod mang đúng annotation
-`aims.hust.vn/source-revision`; hai biến revision riêng notification/inventory
-được giữ để tương thích với quy trình audit các release trước.
+Verifier yêu cầu mọi replica microservice đang được Rollout mong muốn và hai
+frontend pod mang đúng annotation `aims.hust.vn/source-revision`; hai biến
+revision riêng notification/inventory được giữ để tương thích với quy trình
+audit các release trước.
+
+Nếu canary p95 báo `[NaN]` khi service hoàn toàn idle, không promote cưỡng bức.
+Đảm bảo chart chứa điều kiện request rate `> 0`, để Argo CD sync xong rồi retry:
+
+```bash
+kubectl argo rollouts retry rollout <service> -n production
+```
+
+Ngày 14/09/2026, bốn Rollout từng gặp trường hợp này đã được retry; bốn
+AnalysisRun mới đều Successful và Argo CD trở lại `Synced/Healthy`.
 
 Nếu external Sentinel validation bật binding
 `sentinel-experiment-resource-lock`, verifier ghi riêng bốn controller đo tải là

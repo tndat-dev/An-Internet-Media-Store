@@ -547,6 +547,14 @@ giữ đúng danh tính service và chỉ chọn Service `base`, tránh scrape t
 Service headless. Nghiệm thu thấy đủ 10 service, gateway p95 225,87 ms, 5xx bằng
 0 và Tempo trả trace theo `resource.service.name=api-gateway`.
 
+### 12.5 Canary khi không có traffic
+
+Histogram có thể tồn tại nhưng `histogram_quantile()` trả `NaN` nếu rate trong
+cửa sổ bằng 0. Vì `NaN` vẫn là một series, chỉ dùng `or vector(0)` là chưa đủ.
+AnalysisTemplate hiện lọc quantile bằng điều kiện tổng request rate `> 0` trước
+khi fallback về 0. Sự cố thực tế trên bốn Rollout đã được retry; bốn AnalysisRun
+mới đều Successful và ứng dụng trở lại 10/10 Healthy.
+
 ## 13. Giới hạn có chủ đích của lab
 
 - Đây là production-like lab, không phải SLA enterprise; certificate ingress
