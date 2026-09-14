@@ -15,7 +15,7 @@ c84121b156d0fba826f48cdca2edd97a743bc5f8c2657ac1f7b6d43753d75353
 | Trang trong bản AIMS | Nội dung và nguồn |
 |---|---|
 | 01 — SEC · Tenancy L0–L2 | Chỉnh từ trang `SEC - Tenancy Structure` của Oracle; giữ bố cục shared security/network bên trái, các OE và môi trường bên phải. |
-| 02 — NET · Generic v1 structure | Chỉnh từ trang `NET (1) - Structure`; giữ quan hệ OE common-network quản lý các VCN môi trường và phân vai central team/OE team. |
+| 02 — NET · Generic v1 structure | Chỉnh từ trang `NET (1) - Structure`; giữ quan hệ OE common-network quản lý các VCN môi trường và phân vai central team/OE team. Hai đường xanh bổ sung chỉ rõ Hub VCN và production VCN đều gắn vào DRG. |
 | 03 — NET · AIMS Hub B detail | Vẽ phần lab chi tiết bằng màu phân tầng của Oracle và các OCI stencil chỉnh sửa được; thể hiện Hub B, production VCN, CIDR và phạm vi sở hữu tài nguyên. |
 | 04 — APP · AIMS microservices | Giữ nội dung trang ứng dụng trong `OCI_AIMS_ARCHITECTURE.drawio`, gồm OKE ba worker, Kafka, PostgreSQL và CI/CD. Đây là thiết kế ứng dụng của lab, không phải nội dung Oracle Generic v1. |
 

@@ -226,7 +226,7 @@
         <mxCell id="F0j2pfEeGp5YGwWSxT3P-2" value="3rd Party Cloud&lt;br&gt;(optional)" style="rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;gradientColor=none;fontFamily=DejaVu Sans;fontSize=11;align=center;fillColor=#F5F4F2;strokeColor=#9E9892;arcSize=7;verticalAlign=top;fontColor=#312D2A;spacingRight=5;opacity=50;" parent="GU9-9-ZgyPJUUnVXDipt-2" vertex="1">
           <mxGeometry x="1070" y="364" width="79" height="320" as="geometry" />
         </mxCell>
-        <mxCell id="K24OaZYIlZKjFcOrKgq2-1" value="AIMS / OCI OPEN LZ — NETWORK VIEW — GENERIC v1 STRUCTURE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#cce2e9;" parent="GU9-9-ZgyPJUUnVXDipt-1" vertex="1">
+        <mxCell id="K24OaZYIlZKjFcOrKgq2-1" value="AIMS / OCI OPEN LZ — NETWORK VIEW — STRUCTURE &amp;amp; DRG ATTACHMENTS" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#cce2e9;" parent="GU9-9-ZgyPJUUnVXDipt-1" vertex="1">
           <mxGeometry x="90" y="50" width="1360" height="40" as="geometry" />
         </mxCell>
         <mxCell id="F0j2pfEeGp5YGwWSxT3P-0" value="On-Premises&lt;br&gt;(optional)" style="rounded=1;whiteSpace=wrap;html=1;labelBackgroundColor=none;gradientColor=none;fontFamily=DejaVu Sans;fontSize=11;align=center;fillColor=#F5F4F2;strokeColor=#9E9892;arcSize=4;verticalAlign=top;fontColor=#312D2A;spacingRight=5;opacity=50;" parent="GU9-9-ZgyPJUUnVXDipt-1" vertex="1">
@@ -634,13 +634,24 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="aims-overlay-4" value="AIMS tailoring" parent="GU9-9-ZgyPJUUnVXDipt-0" />
-        <mxCell id="scope2" value="Mẫu mạng Oracle: các VCN môi trường do OE common-network quản lý. Lab hiện thực Hub B + production VCN; co/dev/np/sb là dự kiến." vertex="1" parent="aims-overlay-4" style="html=1;whiteSpace=wrap;rounded=0;fontFamily=DejaVu Sans;fontSize=12;align=left;verticalAlign=top;spacing=8;fillColor=#FFFFFF;strokeColor=#80999F;fillColor=#f4f2ef;strokeColor=none;fontSize=13;">
+        <mxCell id="aims-hub-drg-attachment" value="Hub VCN attachment" edge="1" parent="aims-overlay-4" source="GU9-9-ZgyPJUUnVXDipt-46" target="q7e82LMtIPmI7AgU7OGO-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#246375;fontColor=#246375;fontFamily=DejaVu Sans;fontSize=11;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;entryX=0.5;entryY=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aims-spoke-drg-attachment" value="Spoke VCN attachment" edge="1" parent="aims-overlay-4" source="q7e82LMtIPmI7AgU7OGO-13" target="nP3Pw-YKxD_hGmgoLzP3-36" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#246375;fontColor=#246375;fontFamily=DejaVu Sans;fontSize=11;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="352" />
+              <mxPoint x="420" y="646" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="scope2" value="Mẫu mạng Oracle: các VCN môi trường do OE common-network quản lý. Đường xanh biểu diễn Hub/Spoke VCN gắn vào DRG. Lab hiện thực Hub B + production VCN; co/dev/np/sb là dự kiến." vertex="1" parent="aims-overlay-4" style="html=1;whiteSpace=wrap;rounded=0;fontFamily=DejaVu Sans;fontSize=12;align=left;verticalAlign=top;spacing=8;fillColor=#FFFFFF;strokeColor=#80999F;fillColor=#f4f2ef;strokeColor=none;fontSize=13;">
           <mxGeometry as="geometry" x="90" y="103" width="1360" height="50" />
         </mxCell>
         <mxCell id="network2" value="LAB NETWORK&lt;br&gt;Hub: 10.0.0.0/16&lt;br&gt;Production: 10.1.0.0/16&lt;br&gt;SGW: trực tiếp tới Oracle services&lt;br&gt;1 managed firewall tại Hub&lt;br&gt;Chi tiết packet flow ở trang 03." vertex="1" parent="aims-overlay-4" style="html=1;whiteSpace=wrap;rounded=0;fontFamily=DejaVu Sans;fontSize=12;align=left;verticalAlign=top;spacing=8;fillColor=#FFFFFF;strokeColor=#80999F;fillColor=#faf8d6;fontSize=13;">
           <mxGeometry as="geometry" x="1210" y="670" width="250" height="157" />
         </mxCell>
-        <mxCell id="notes2" value="Đây là network ownership view: VCN/subnet ở cmp-oe01-common-network; OKE, nodes, volumes và Private LB ở cmp-oe01-prod.&lt;br&gt;Hai subnet API/Bastion được tách rõ trên trang 03; không coi chúng là một subnet.&lt;br&gt;Hub B thay bố trí firewall tổng quát trong mẫu. Không dựng thêm firewall OE, FastConnect, môi trường thử nghiệm hoặc cloud khác trong baseline lab." vertex="1" parent="aims-overlay-4" style="html=1;whiteSpace=wrap;rounded=0;fontFamily=DejaVu Sans;fontSize=12;align=left;verticalAlign=top;spacing=8;fillColor=#FFFFFF;strokeColor=#80999F;fillColor=#f4f2ef;strokeColor=none;fontSize=13;">
+        <mxCell id="notes2" value="Đây là network ownership + attachment view: Hub VCN và production VCN đều có DRG attachment; DRG nằm ngoài Hub VCN.&lt;br&gt;VCN/subnet ở cmp-oe01-common-network; OKE, nodes, volumes và Private LB ở cmp-oe01-prod. Packet flow/route chi tiết ở trang 03 và runbook mục 8.&lt;br&gt;Hub B dùng một Network Firewall. Không dựng thêm firewall OE, FastConnect, môi trường thử nghiệm hoặc cloud khác trong baseline lab." vertex="1" parent="aims-overlay-4" style="html=1;whiteSpace=wrap;rounded=0;fontFamily=DejaVu Sans;fontSize=12;align=left;verticalAlign=top;spacing=8;fillColor=#FFFFFF;strokeColor=#80999F;fillColor=#f4f2ef;strokeColor=none;fontSize=13;">
           <mxGeometry as="geometry" x="90" y="887" width="1360" height="110" />
         </mxCell>
       </root>
