@@ -4,6 +4,7 @@ Programming/frontend/tsconfig.tsbuildinfo
 
 # Local/reference documents
 *.md
+!docs/oci/OCI_AIMS_GENERIC_V1_NOTES.md
 
 # AIMS deployment evidence and runbooks are deliverables, not local notes.
 !AIMS_DEPLOYMENT_REPORT.md

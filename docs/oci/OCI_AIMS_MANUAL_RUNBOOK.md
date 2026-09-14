@@ -8,6 +8,8 @@ Tài liệu này dành cho người triển khai lab từ đầu. Công việc t
 
 Sơ đồ đi kèm: [OCI_AIMS_ARCHITECTURE.drawio](OCI_AIMS_ARCHITECTURE.drawio) · [Bản PDF ba trang](OCI_AIMS_ARCHITECTURE.pdf). Sơ đồ có ba trang: tổng thể, routing và nền tảng ứng dụng. Các quyết định riêng của lab được ghi rõ; chúng không phải yêu cầu bắt buộc của blueprint Oracle.
 
+**Bổ sung 14/09/2026:** [Sơ đồ theo bố cục Oracle Generic v1](OCI_AIMS_GENERIC_V1.drawio) · [PDF bốn trang](OCI_AIMS_GENERIC_V1.pdf) · [Nguồn và ánh xạ vào lab](OCI_AIMS_GENERIC_V1_NOTES.md). Bản này được dựng từ file draw.io Oracle người dùng cung cấp, gồm cấu trúc tenancy, network ownership, chi tiết Hub B và nền tảng AIMS.
+
 ## Mục lục
 
 1. [Khái niệm cơ bản](#1-khái-niệm-cơ-bản)
