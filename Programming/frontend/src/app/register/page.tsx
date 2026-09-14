@@ -44,8 +44,11 @@ export default function RegisterPage() {
       router.replace("/");
     } catch (err) {
       const fields = parseApiError(err);
-      if (Object.keys(fields).length) setFieldErrors(fields);
-      else setError("Could not create your account. Please try again.");
+      const { detail, ...inputErrors } = fields;
+      setFieldErrors(inputErrors);
+      if (detail || Object.keys(inputErrors).length === 0) {
+        setError(detail ?? "Could not create your account. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }

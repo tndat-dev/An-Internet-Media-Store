@@ -1,7 +1,8 @@
 import { clearAuthToken, getAuthToken, UNAUTHORIZED_EVENT } from "@/lib/authToken";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "/api"
+).replace(/\/+$/, "");
 
 type ApiClientOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -126,5 +127,16 @@ export async function apiClient<T>(
   }
 
   const text = await response.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  if (!text) {
+    return undefined as T;
+  }
+
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new ApiError(response.status, {
+      detail: `Expected JSON from ${url}, received ${contentType || "an unknown content type"}`,
+    });
+  }
+
+  return JSON.parse(text) as T;
 }

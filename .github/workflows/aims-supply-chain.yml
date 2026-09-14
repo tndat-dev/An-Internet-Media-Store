@@ -176,6 +176,7 @@ jobs:
             ${{ steps.image.outputs.repository }}:main
           build-args: |
             AIMS_SOURCE_REVISION=${{ github.sha }}
+            NEXT_PUBLIC_API_BASE_URL=/api
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
