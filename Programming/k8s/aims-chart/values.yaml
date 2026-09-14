@@ -1,6 +1,6 @@
 backendImage:
   repository: ghcr.io/tndat-dev/aims-backend
-  tag: sha256:a04d8c7777e2c85814a067dbacc7fb34d10c76d4d413e283686aea6a4624a1a0
+  tag: sha256:6b1100f1ac64b2a11ba0ec98101dbde52f4b65714e450b6cca56fe1c009ca4d1
   pullPolicy: IfNotPresent
 imagePullSecrets:
 - name: ghcr-pull
@@ -8,7 +8,7 @@ imagePullSecrets:
 # Immutable source revision used to force a controlled rollout when a node-local
 # lab image is rebuilt under the stable prod-sim tag. Registry deployments use
 # an image digest and update this value to the commit that produced that digest.
-sourceRevision: "57eefed3e1ac4011dab612b96201e4100749fd23"
+sourceRevision: "02b77b90c51665dd4185fee576fd93ce49e5e93d"
 
 frontend:
   replicas: 2
@@ -17,7 +17,7 @@ frontend:
   nodeSelector: {}
   image:
     repository: ghcr.io/tndat-dev/aims-frontend
-    tag: sha256:a6297bab80fee5847d08fbe9a336263a8d76c073af64f71b77cc53c946142468
+    tag: sha256:1db04841c32fe5f812c4008152da7e6042fcc6250289c6bc0c57e4db92bb6b26
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -34,56 +34,56 @@ services:
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-api-gateway
-    tag: sha256:0bb48ce9356977f5d79f1156d1fa3f5c33cc3bced1ebf2395779188e7ad301eb
+    tag: sha256:66a6e43a2035d2f6ffc00c572be1d4fce773ddd64afd98ec903345c7b5da64ea
     pullPolicy: IfNotPresent
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: auth-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-auth-service
-    tag: sha256:9bfb45c8cc7ae143e9674161d4cb935a8ff2e9e37426c65ba499f243991f7a4e
+    tag: sha256:eaefa25be49c375882a8a326f201bb54250044670331612e426d247ac7471e92
     pullPolicy: IfNotPresent
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: catalog-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-catalog-service
-    tag: sha256:52bcc77738edcdae61a5e295d4ead01a9540f0b3c0fcc28b9c38049fed8b55e2
+    tag: sha256:c0c8971de457ee62ba4af02d2068d25467cfe22056f7ac16e54f99050b10b69b
     pullPolicy: IfNotPresent
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: cart-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-cart-service
-    tag: sha256:54f846f686418269eaefb6eae26333d10928685c6af9b89c367bcddfdd5a2eea
+    tag: sha256:4dccb998cd58737316f12c04e432586da9f92f71f5f328ba7f37b180371958b6
     pullPolicy: IfNotPresent
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: order-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-order-service
-    tag: sha256:a3613fb6fa3ea68d0c13ae964af9c169a66cc4043615ff58db3cde8647d52d7e
+    tag: sha256:af9b600ac19867970a65bcbf4648f64328010a9072c75c01ed42032cd8fd7025
     pullPolicy: IfNotPresent
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: payment-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-payment-service
-    tag: sha256:c432b5a1dc118df82949a23081505f56c400d5032d0385efc58e043213b59cdb
+    tag: sha256:7702fe051173fa872fcb229325a9720079ccbde5df6acacc3435d41f245f3527
     pullPolicy: IfNotPresent
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
   kafkaConsumerTopic: aims.business.inventory.reserved.v1
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: inventory-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-inventory-service
-    tag: sha256:bf6714f15af816221fb6e0c503460af5498463f3239334e96dc167cfe3afe5ff
+    tag: sha256:f53ddd49eda730393a72f2cea959dbeeda1363dd9aa1491c4def845641a7da14
     pullPolicy: IfNotPresent
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
@@ -93,14 +93,14 @@ services:
     KAFKA_CONSUMER_GROUP: aims.inventory-service.v1
     KAFKA_OUTPUT_TOPIC_SUCCESS: aims.business.inventory.reserved.v1
     KAFKA_OUTPUT_TOPIC_FAILURE: aims.business.inventory.rejected.v1
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: notification-service
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-notification-service
-    tag: sha256:a7e25a9b6429b6c12adef016456c2128f9d19f61cb30f895ee162297431385d6
+    tag: sha256:ccde392c3848e3741f0205aad369a8ae32e45c2df4a9b14638914f0bd1e01f6b
     pullPolicy: IfNotPresent
-  sourceRevision: "57eefed3e1ac4011dab612b96201e4100749fd23"
+  sourceRevision: "02b77b90c51665dd4185fee576fd93ce49e5e93d"
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
@@ -109,22 +109,22 @@ services:
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-search-recommendation-service
-    tag: sha256:5a49e2e4d80d1e5ae11b9e70164f3761f280c5ba6165600e1f8e34d220482f30
+    tag: sha256:4cdf6f60cf2f616e653194d76c2231ca9381ca9c97f284987f054966486d6ab3
     pullPolicy: IfNotPresent
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 - name: security-telemetry-service
   replicas: 2
   localhostProfiles: true
   image:
     repository: ghcr.io/tndat-dev/aims-security-telemetry-service
-    tag: sha256:af86c36fb5a12d2f117e6930d9efc8d4aa9b17964d205534973228bab33fd630
+    tag: sha256:c146d39b35554902cf404421d1a84962d66e250ae5aa54a075e9d28f4c9c93cb
     pullPolicy: IfNotPresent
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
   kafkaConsumerTopic: aims-security-telemetry
 
-  sourceRevision: 57eefed3e1ac4011dab612b96201e4100749fd23
+  sourceRevision: 02b77b90c51665dd4185fee576fd93ce49e5e93d
 integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
   kafkaBusinessTopic: aims-business-events
