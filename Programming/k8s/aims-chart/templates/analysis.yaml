@@ -32,9 +32,13 @@ spec:
         prometheus:
           address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
           query: |
-            histogram_quantile(
-              0.95,
-              sum by (le) (
-                rate(http_server_duration_milliseconds_bucket{job="production/{{ `{{args.service-name}}` }}"}[2m])
+            (
+              histogram_quantile(
+                0.95,
+                sum by (le) (
+                  rate(http_server_duration_milliseconds_bucket{job="production/{{ `{{args.service-name}}` }}"}[2m])
+                )
               )
+              and on()
+              sum(rate(http_server_duration_milliseconds_count{job="production/{{ `{{args.service-name}}` }}"}[2m])) > 0
             ) or vector(0)
