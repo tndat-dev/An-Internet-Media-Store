@@ -52,6 +52,23 @@ fi
 app_id=$(kcadm get clients -r aims -q clientId=aims-app --fields id --format csv \
   --noquotes | head -n1)
 
+# Keep application authorization claims available from both the access token
+# and userinfo. The auth-service validates the token with userinfo, while the
+# browser never needs to decode role claims itself.
+realm_roles_mapper_count=$(kcadm get "clients/${app_id}/protocol-mappers/models" -r aims | \
+  jq '[.[] | select(.name == "realm roles")] | length')
+if [[ "${realm_roles_mapper_count}" -eq 0 ]]; then
+  kcadm create "clients/${app_id}/protocol-mappers/models" -r aims \
+    -s name='realm roles' \
+    -s protocol=openid-connect \
+    -s protocolMapper=oidc-usermodel-realm-role-mapper \
+    -s 'config."claim.name"=realm_access.roles' \
+    -s 'config."multivalued"=true' \
+    -s 'config."access.token.claim"=true' \
+    -s 'config."id.token.claim"=true' \
+    -s 'config."userinfo.token.claim"=true' >/dev/null
+fi
+
 # auth-service uses this confidential client's service account only for user
 # registration, CUSTOMER assignment and password reset. It receives no realm
 # administration or client-management role.

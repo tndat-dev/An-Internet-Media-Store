@@ -271,13 +271,28 @@ class PaymentRuntime:
     async def publish_outbox(self) -> None:
         assert self.producer
         while True:
-            async with await self.connect() as connection:
-                cursor = await connection.execute("SELECT id,topic,message_key,payload FROM payment_service.outbox_events WHERE published_at IS NULL ORDER BY id LIMIT 1")
-                row = await cursor.fetchone()
-                if row:
-                    await self.producer.send_and_wait(row["topic"], json.dumps(row["payload"]).encode(), key=row["message_key"].encode())
-                    await connection.execute("UPDATE payment_service.outbox_events SET published_at=now() WHERE id=%s", (row["id"],))
-                else: await asyncio.sleep(1)
+            try:
+                async with await self.connect() as connection:
+                    cursor = await connection.execute(
+                        "SELECT id,topic,message_key,payload FROM payment_service.outbox_events "
+                        "WHERE published_at IS NULL ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        await asyncio.wait_for(
+                            self.producer.send_and_wait(row["topic"], json.dumps(row["payload"]).encode(), key=row["message_key"].encode()),
+                            timeout=20,
+                        )
+                        await connection.execute("UPDATE payment_service.outbox_events SET published_at=now() WHERE id=%s", (row["id"],))
+                        self.kafka_ready = True
+                if not row:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.kafka_ready = False
+                logger.exception("Payment outbox publisher failed; retrying")
+                await asyncio.sleep(3)
 
     async def complete(self, payload: PaymentRequest) -> dict[str, Any]:
         payment_id = uuid.uuid4()

@@ -23,7 +23,7 @@ BASE = os.getenv("AIMS_BASE_URL", "http://10.1.16.234:31088").rstrip("/")
 HOST = os.getenv("AIMS_HOST", "aims.lab")
 MANAGER_TOKEN = os.getenv("AIMS_TEST_MANAGER_TOKEN", "").strip()
 ADMIN_TOKEN = os.getenv("AIMS_TEST_ADMIN_TOKEN", MANAGER_TOKEN).strip()
-RUN_ID = uuid.uuid4().hex[:10]
+RUN_ID = os.getenv("AIMS_TEST_RUN_ID", uuid.uuid4().hex[:10])
 failures = 0
 cleanup_users: list[str] = []
 
@@ -45,6 +45,7 @@ def request(
     token: str = "",
     cart_token: str = "",
     expected: tuple[int, ...] = (200,),
+    quiet: bool = False,
 ) -> tuple[int, Any]:
     headers = {"Accept": "application/json", "Host": HOST, "X-Forwarded-For": f"198.18.1.{(len(path) % 200) + 1}"}
     if body is not None:
@@ -54,17 +55,25 @@ def request(
     if cart_token:
         headers["X-Cart-Token"] = cart_token
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"{BASE}{path}", data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=25) as response:
-            status, raw = response.status, response.read()
-    except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
+    for attempt in range(3):
+        req = urllib.request.Request(f"{BASE}{path}", data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=25) as response:
+                status, raw = response.status, response.read()
+        except urllib.error.HTTPError as error:
+            status, raw = error.code, error.read()
+        transient_mesh_failure = status in {502, 503} and (
+            b"upstream connect error" in raw or b"Upstream unavailable" in raw
+        )
+        if not transient_mesh_failure or attempt == 2:
+            break
+        time.sleep(0.5 * (attempt + 1))
     try:
         payload = json.loads(raw) if raw else None
     except json.JSONDecodeError:
         payload = raw.decode(errors="replace")
-    check(f"{method} {path} -> {expected}", status in expected, f"HTTP {status}, body={str(payload)[:300]}")
+    if not quiet:
+        check(f"{method} {path} -> {expected}", status in expected, f"HTTP {status}, body={str(payload)[:300]}")
     return status, payload
 
 
@@ -140,16 +149,19 @@ def checkout(product_id: str, action: str, expected_available: int) -> None:
     request("POST", "/api/orders/", {"orderId": order_id})
     wait_for(
         f"{action}: Kafka reserves stock",
-        lambda: request("GET", f"/api/inventory/{product_id}")[1],
+        lambda: request("GET", f"/api/inventory/{product_id}", quiet=True)[1],
         lambda stock: stock.get("available") == expected_available - 1 and stock.get("reserved", 0) >= 1,
     )
+    stock = request("GET", f"/api/inventory/{product_id}", quiet=True)[1]
+    if stock.get("available") != expected_available - 1:
+        raise RuntimeError(f"Stock reservation failed for {action}; stopping before synthetic payment")
     _, qr = request("POST", "/api/payments/vietqr/qr-code/", {"order_id": order_id, "amount": "1"})
     check(f"{action}: VietQR ignores tampered browser amount", Decimal(qr["amount"]) == Decimal("35200"), str(qr))
     check(f"{action}: VietQR returns scannable payload", bool(qr.get("qr_code") or qr.get("qr_payload")))
     request("POST", "/api/payments/vietqr/test-callback/", {"transaction_id": qr["transaction_id"]})
     wait_for(
         f"{action}: PaymentCompleted transitions order",
-        lambda: request("GET", f"/api/orders/{order_token}/")[1],
+        lambda: request("GET", f"/api/orders/{order_token}/", quiet=True)[1],
         lambda order: order.get("status") == "PENDING_PROCESSING",
     )
     if action == "approve":
@@ -165,7 +177,7 @@ def checkout(product_id: str, action: str, expected_available: int) -> None:
     expected_final = expected_available - 1 if action == "approve" else expected_available
     wait_for(
         f"{action}: lifecycle finalizes inventory",
-        lambda: request("GET", f"/api/inventory/{product_id}")[1],
+        lambda: request("GET", f"/api/inventory/{product_id}", quiet=True)[1],
         lambda stock: stock.get("available") == expected_final and stock.get("reserved") == 0,
     )
 
@@ -174,6 +186,19 @@ def manager_product_and_order_checks() -> None:
     if not MANAGER_TOKEN:
         print("SKIP  product/order manager operations (AIMS_TEST_MANAGER_TOKEN is empty)")
         return
+    # Remove artifacts from an interrupted earlier acceptance run. This uses
+    # only the public manager API and preserves its audit trail.
+    _, stale_products = request("GET", "/api/products/?scope=manager&search=AIMS%20Acceptance%20Book", token=MANAGER_TOKEN)
+    for stale in stale_products if isinstance(stale_products, list) else []:
+        if not str(stale.get("title", "")).startswith("AIMS Acceptance Book ") or not str(stale.get("barcode", "")).startswith("ACCEPT-"):
+            continue
+        stale_id = stale.get("product_id")
+        if not stale_id:
+            continue
+        if int(stale.get("stock_quantity", 0)) != 0:
+            request("PATCH", f"/api/products/{stale_id}/", {**stale, "stock_quantity": 0, "stock_adjustment_reason": "Interrupted acceptance cleanup"}, token=MANAGER_TOKEN)
+        request("POST", "/api/products/delete/", {"product_ids": [stale_id]}, token=MANAGER_TOKEN)
+
     payload = {
         "product_type": "BOOK", "title": f"AIMS Acceptance Book {RUN_ID}", "category": "Acceptance", "general_description": "Synthetic product", "height": "20", "width": "14", "length": "2", "weight": "0.5", "barcode": f"ACCEPT-{RUN_ID}", "image_url": "", "original_value": "10000", "current_price": "12000", "stock_quantity": 5, "status": "ACTIVE", "type_details": {"authors": "AIMS Test", "cover_type": "Paperback", "publisher": "HUST", "publication_date": "2026-09-15"},
     }
@@ -183,27 +208,35 @@ def manager_product_and_order_checks() -> None:
     product_id = product.get("product_id", "")
     if not product_id:
         return
-    request("GET", f"/api/products/{product_id}/?scope=customer")
-    request("GET", f"/api/products/histories/?product_id={product_id}", token=MANAGER_TOKEN)
-    checkout(product_id, "approve", 5)
-    checkout(product_id, "cancel", 4)
-    checkout(product_id, "reject", 4)
-    _, manager_product = request("GET", f"/api/products/{product_id}/", token=MANAGER_TOKEN)
-    check("Catalog composes authoritative post-order stock", manager_product.get("stock_quantity") == 4, str(manager_product))
-    update = {**payload, "stock_quantity": 0, "stock_adjustment_reason": "Acceptance test cleanup"}
-    request("PATCH", f"/api/products/{product_id}/", update, token=MANAGER_TOKEN)
-    _, deleted = request("POST", "/api/products/delete/", {"product_ids": [product_id]}, token=MANAGER_TOKEN)
-    check("Zero-stock product is deleted", deleted[0].get("status") == "DELETED", str(deleted))
-    _, history = request("GET", f"/api/products/histories/?product_id={product_id}", token=MANAGER_TOKEN)
-    actions = {entry["action_type"] for entry in history}
-    check("Product create/stock/delete history is queryable", {"CREATE", "STOCK_ADJUST", "DELETE"}.issubset(actions), str(actions))
+    try:
+        request("GET", f"/api/products/{product_id}/?scope=customer")
+        request("GET", f"/api/products/histories/?product_id={product_id}", token=MANAGER_TOKEN)
+        checkout(product_id, "approve", 5)
+        checkout(product_id, "cancel", 4)
+        checkout(product_id, "reject", 4)
+        _, manager_product = request("GET", f"/api/products/{product_id}/", token=MANAGER_TOKEN)
+        check("Catalog composes authoritative post-order stock", manager_product.get("stock_quantity") == 4, str(manager_product))
+    finally:
+        # Tests mutate live lab state; cleanup must run even if an assertion or
+        # transient gateway failure interrupts a checkout.
+        update = {**payload, "stock_quantity": 0, "stock_adjustment_reason": "Acceptance test cleanup"}
+        request("PATCH", f"/api/products/{product_id}/", update, token=MANAGER_TOKEN)
+        _, deleted = request("POST", "/api/products/delete/", {"product_ids": [product_id]}, token=MANAGER_TOKEN)
+        check("Zero-stock product is deleted", isinstance(deleted, list) and deleted[0].get("status") == "DELETED", str(deleted))
+        _, history = request("GET", f"/api/products/histories/?product_id={product_id}", token=MANAGER_TOKEN)
+        actions = {entry["action_type"] for entry in history if isinstance(entry, dict)} if isinstance(history, list) else set()
+        check("Product create/stock/delete history is queryable", {"CREATE", "STOCK_ADJUST", "DELETE"}.issubset(actions), str(actions))
 
 
 def main() -> int:
-    public_and_identity_checks()
-    admin_checks()
-    manager_product_and_order_checks()
-    print("CLEANUP_KEYCLOAK_USER_IDS=" + ",".join(filter(None, cleanup_users)))
+    try:
+        public_and_identity_checks()
+        admin_checks()
+        manager_product_and_order_checks()
+    except (KeyError, TypeError, ValueError, RuntimeError, urllib.error.URLError) as exc:
+        check("Acceptance runner did not abort", False, str(exc))
+    finally:
+        print("CLEANUP_KEYCLOAK_USER_IDS=" + ",".join(filter(None, cleanup_users)))
     if failures:
         print(f"ACCEPTANCE FAIL: {failures} assertion(s)")
         return 1

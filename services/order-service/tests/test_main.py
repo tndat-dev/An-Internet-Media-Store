@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import DeliveryInput, add_order_lifecycle_event, app, calculate_delivery_fee, invoice_totals, render_order
+from app.shipping import AimsShippingPolicy
 
 
 def test_health():
@@ -37,6 +38,16 @@ def test_delivery_fee_tariff_and_discount():
     assert calculate_delivery_fee("Ha Noi", Decimal("3"), Decimal("12000")) == Decimal("22000.00")
     assert calculate_delivery_fee("Da Nang", Decimal("1"), Decimal("12000")) == Decimal("32500.00")
     assert calculate_delivery_fee("Ha Noi", Decimal("3"), Decimal("100001")) == Decimal("0.00")
+
+
+def test_shipping_policy_accepts_alternative_weight_strategy_without_changing_tariff():
+    class FixedWeight:
+        def chargeable_weight(self, items):
+            assert items[0]["quantity"] == 1
+            return Decimal("4")
+
+    policy = AimsShippingPolicy(weight_strategy=FixedWeight())
+    assert policy.calculate("Ha Noi", [{"quantity": 1}], Decimal("12000")) == Decimal("27000.00")
 
 
 def test_delivery_input_rejects_invalid_contact_details():

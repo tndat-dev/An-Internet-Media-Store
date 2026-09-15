@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -47,6 +48,8 @@ class RedisRateLimiter:
         self.client = None
         self.ready = False
         self.limit = int(os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "300"))
+        self.retry_at = 0.0
+        self.reconnect_lock = asyncio.Lock()
 
     async def start(self) -> None:
         host = os.getenv("REDIS_HOST", "").strip()
@@ -73,6 +76,14 @@ class RedisRateLimiter:
             await self.client.aclose()
 
     async def allow(self, subject: str) -> tuple[bool, int]:
+        if not self.ready and time.monotonic() >= self.retry_at:
+            async with self.reconnect_lock:
+                if not self.ready and time.monotonic() >= self.retry_at:
+                    self.retry_at = time.monotonic() + 5
+                    try:
+                        await self.start()
+                    except Exception:
+                        self.ready = False
         if not self.ready or not self.client:
             return True, 0
         window = int(time.time() // 60)
@@ -84,6 +95,7 @@ class RedisRateLimiter:
             return value <= self.limit, max(0, 60 - int(time.time()) % 60)
         except Exception:
             self.ready = False
+            self.retry_at = time.monotonic() + 5
             return True, 0
 
 

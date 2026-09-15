@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import ssl
@@ -11,7 +12,6 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from math import ceil
 from typing import Any
 
 import httpx
@@ -21,9 +21,12 @@ from aiokafka.structs import TopicPartition
 from fastapi import FastAPI, Header, HTTPException
 
 from app.observability import install_observability
+from app.shipping import DEFAULT_SHIPPING_POLICY
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger("aims.order")
 
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS order_service;
@@ -106,24 +109,11 @@ def money(value: Decimal | str | int) -> Decimal:
 
 
 def calculate_delivery_fee(province: str, weight_kg: Decimal, order_value: Decimal) -> Decimal:
-    """Apply the delivery tariff defined by the AIMS problem statement."""
-    normalized = " ".join(province.strip().lower().replace(".", "").split())
-    if not normalized:
-        raise HTTPException(status_code=422, detail={"deliveryProvince": "Delivery province is required"})
-    major_cities = {
-        "ha noi", "hanoi", "hà nội", "ho chi minh city", "ho chi minh",
-        "hồ chí minh", "tp ho chi minh", "tp hồ chí minh", "hcm",
-    }
-    if normalized in major_cities:
-        fee, base_weight = Decimal("22000"), Decimal("3.0")
-    else:
-        fee, base_weight = Decimal("30000"), Decimal("0.5")
-    billable_weight = weight_kg if weight_kg > 0 else Decimal("0.5")
-    if billable_weight > base_weight:
-        fee += Decimal(ceil((billable_weight - base_weight) / Decimal("0.5"))) * Decimal("2500")
-    if order_value > Decimal("100000"):
-        fee = max(Decimal("0"), fee - Decimal("25000"))
-    return money(fee)
+    """Compatibility boundary for callers using a precomputed weight."""
+    try:
+        return DEFAULT_SHIPPING_POLICY.fee(province, weight_kg, order_value)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail={"deliveryProvince": str(error)}) from error
 
 
 def invoice_totals(items: list[dict[str, Any]], delivery_fee: Decimal = Decimal("0")) -> dict[str, str]:
@@ -141,12 +131,7 @@ def invoice_totals(items: list[dict[str, Any]], delivery_fee: Decimal = Decimal(
 
 
 def total_weight(items: list[dict[str, Any]]) -> Decimal:
-    # Legacy cart snapshots may not contain unitWeight. A physical-media item
-    # is conservatively billed at the first 0.5 kg band until it is refreshed.
-    return sum(
-        (max(Decimal(str(item.get("unitWeight", "0.5"))), Decimal("0.5")) * int(item["quantity"]) for item in items),
-        Decimal("0"),
-    )
+    return DEFAULT_SHIPPING_POLICY.weight_strategy.chargeable_weight(items)
 
 
 async def require_product_manager(authorization: str | None) -> dict[str, Any]:
@@ -263,14 +248,28 @@ class OrderRuntime:
     async def publish_outbox(self) -> None:
         assert self.producer
         while True:
-            async with await self.connect() as connection:
-                cursor = await connection.execute("SELECT id,topic,message_key,payload FROM order_service.outbox_events WHERE published_at IS NULL ORDER BY id LIMIT 1")
-                row = await cursor.fetchone()
-                if row:
-                    await self.producer.send_and_wait(row["topic"], json.dumps(row["payload"]).encode(), key=row["message_key"].encode())
-                    await connection.execute("UPDATE order_service.outbox_events SET published_at=now() WHERE id=%s", (row["id"],))
-                else:
+            try:
+                async with await self.connect() as connection:
+                    cursor = await connection.execute(
+                        "SELECT id,topic,message_key,payload FROM order_service.outbox_events "
+                        "WHERE published_at IS NULL ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        await asyncio.wait_for(
+                            self.producer.send_and_wait(row["topic"], json.dumps(row["payload"]).encode(), key=row["message_key"].encode()),
+                            timeout=20,
+                        )
+                        await connection.execute("UPDATE order_service.outbox_events SET published_at=now() WHERE id=%s", (row["id"],))
+                        self.kafka_ready = True
+                if not row:
                     await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.kafka_ready = False
+                logger.exception("Order outbox publisher failed; retrying")
+                await asyncio.sleep(3)
 
     async def consume_payments(self) -> None:
         """Reconcile successful provider payments into the Order aggregate.
