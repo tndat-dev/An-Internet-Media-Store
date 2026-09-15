@@ -138,6 +138,41 @@ async def adjust_inventory(product_id: uuid.UUID, delta: int, reason: str, autho
         raise HTTPException(status_code=response.status_code, detail=detail)
 
 
+async def inventory_availability(product_id: uuid.UUID | str) -> int | None:
+    inventory_url = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service.production.svc.cluster.local:8000").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{inventory_url}/api/inventory/{product_id}")
+        if response.status_code == 200:
+            return int(response.json()["available"])
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        pass
+    return None
+
+
+async def hydrate_inventory(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compose catalog metadata with Inventory's authoritative availability."""
+    if not products:
+        return products
+    inventory_url = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service.production.svc.cluster.local:8000").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.post(
+                f"{inventory_url}/api/inventory/batch",
+                json={"productIds": [product["product_id"] for product in products]},
+            )
+        stocks = response.json().get("stocks", {}) if response.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        stocks = {}
+    for product in products:
+        stock = stocks.get(product["product_id"])
+        if stock is not None:
+            available = int(stock["available"])
+            product["stock_quantity"] = available
+            product["is_available"] = product["status"] == "ACTIVE" and available > 0
+    return products
+
+
 def snapshot_product(row: dict[str, Any]) -> dict[str, Any]:
     value = encode_product(row)
     return {key: value.get(key) for key in ("product_id", "title", "product_type", "category", "current_price", "original_value", "stock_quantity", "status", "type_details")}
@@ -237,7 +272,7 @@ async def list_products(
             [*params, page_size, (page - 1) * page_size],
         )
         rows = await cursor.fetchall()
-    rendered = [encode_product(row) for row in rows]
+    rendered = await hydrate_inventory([encode_product(row) for row in rows])
     if scope == "manager":
         return rendered
     return {"count": total, "next": page + 1 if page * page_size < total else None, "previous": page - 1 if page > 1 else None, "results": rendered}
@@ -270,10 +305,13 @@ async def update_product(product_id: uuid.UUID, changes: dict[str, Any], authori
             raise HTTPException(status_code=404, detail="Product not found")
         before = snapshot_product(current)
         merged = {**encode_product(current), **changes}
+        live_stock = await inventory_availability(product_id)
+        if "stock_quantity" not in changes and live_stock is not None:
+            merged["stock_quantity"] = live_stock
         merged["general_description"] = merged.get("general_description", merged.get("description", ""))
         payload = ProductInput.model_validate(merged)
         validate_product(payload)
-        stock_delta = payload.stock_quantity - int(current["stock_quantity"])
+        stock_delta = payload.stock_quantity - (live_stock if live_stock is not None else int(current["stock_quantity"]))
         reason = str(changes.get("stock_adjustment_reason", "")).strip()
         if stock_delta and not reason:
             raise HTTPException(status_code=422, detail={"stock_adjustment_reason": "A reason is required when stock changes"})
@@ -303,7 +341,9 @@ async def delete_products(payload: DeleteProductsInput, authorization: str | Non
             if not current:
                 raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
             before = snapshot_product(current)
-            action, status = ("DELETE", "DELETED") if current["stock_quantity"] == 0 else ("DEACTIVATE", "DEACTIVATED")
+            live_stock = await inventory_availability(product_id)
+            available = live_stock if live_stock is not None else int(current["stock_quantity"])
+            action, status = ("DELETE", "DELETED") if available == 0 else ("DEACTIVATE", "DEACTIVATED")
             cursor = await connection.execute("UPDATE catalog_service.products SET status=%s,updated_at=now() WHERE product_id=%s RETURNING *", (status, product_id))
             row = await cursor.fetchone()
             await add_history(connection, row, action, user["username"], before=before, reason="Bulk delete request")
@@ -331,4 +371,4 @@ async def get_product(product_id: uuid.UUID) -> dict[str, Any]:
         row = await cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Product not found")
-    return encode_product(row)
+    return (await hydrate_inventory([encode_product(row)]))[0]

@@ -75,6 +75,8 @@ def test_reservation_is_released_or_committed_from_order_lifecycle():
         await runtime.finalize_reservation(event(approved_order, f"event-{uuid.uuid4()}", "OrderApproved"))
         committed = await runtime.stock(product_id)
         assert committed["available"] == 3 and committed["reserved"] == 0
+        batch = await runtime.stocks([product_id, "missing-product"])
+        assert len(batch) == 1 and batch[0]["product_id"] == product_id
 
     with TestClient(app):
         asyncio.run(scenario())

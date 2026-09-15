@@ -51,6 +51,10 @@ class StockAdjustment(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class StockBatchQuery(BaseModel):
+    productIds: list[str] = Field(min_length=1, max_length=100)
+
+
 SCHEMA_SQL = """
 CREATE SCHEMA IF NOT EXISTS inventory_service;
 CREATE TABLE IF NOT EXISTS inventory_service.stock (
@@ -396,6 +400,18 @@ class InventoryRuntime:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
+    async def stocks(self, product_ids: list[str]) -> list[dict[str, Any]]:
+        if not self.database_url:
+            raise RuntimeError("Inventory database is unavailable")
+        async with await psycopg.AsyncConnection.connect(self.database_url, row_factory=dict_row) as connection:
+            rows = await (
+                await connection.execute(
+                    "SELECT product_id,available,reserved,updated_at FROM inventory_service.stock WHERE product_id = ANY(%s)",
+                    (product_ids,),
+                )
+            ).fetchall()
+        return [dict(row) for row in rows]
+
 
 runtime = InventoryRuntime()
 
@@ -452,6 +468,24 @@ async def adjust_stock(product_id: str, adjustment: StockAdjustment, authorizati
         raise HTTPException(status_code=409, detail=str(error)) from error
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/inventory/batch")
+async def get_stock_batch(query: StockBatchQuery) -> dict[str, Any]:
+    try:
+        rows = await runtime.stocks(list(dict.fromkeys(query.productIds)))
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {
+        "stocks": {
+            row["product_id"]: {
+                "available": row["available"],
+                "reserved": row["reserved"],
+                "updatedAt": row["updated_at"].isoformat(),
+            }
+            for row in rows
+        }
+    }
 
 
 @app.get("/api/inventory/{product_id}")
