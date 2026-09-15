@@ -55,3 +55,24 @@ def test_payment_event_is_published_as_durable_rabbit_task(monkeypatch):
     asyncio.run(runtime.publish_task(event))
     assert published[0][1] == "notification.deliver"
     assert published[0][0].delivery_mode.value == 2
+
+
+def test_order_lifecycle_event_is_supported(monkeypatch):
+    published = []
+
+    class Exchange:
+        async def publish(self, message, routing_key):
+            published.append((message, routing_key))
+
+    event = EventEnvelope.model_validate({
+        "eventId": "order-approved-event-1",
+        "eventType": "OrderApproved",
+        "eventVersion": 1,
+        "occurredAt": "2026-09-15T00:00:00Z",
+        "aggregateId": "order-1",
+        "correlationId": "order-1",
+        "payload": {"email": "buyer@example.test"},
+    })
+    monkeypatch.setattr(runtime, "task_exchange", Exchange())
+    asyncio.run(runtime.publish_task(event))
+    assert published[0][1] == "notification.deliver"

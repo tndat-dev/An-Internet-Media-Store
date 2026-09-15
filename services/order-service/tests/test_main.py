@@ -1,10 +1,11 @@
+import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.main import DeliveryInput, app, calculate_delivery_fee, invoice_totals, render_order
+from app.main import DeliveryInput, add_order_lifecycle_event, app, calculate_delivery_fee, invoice_totals, render_order
 
 
 def test_health():
@@ -55,3 +56,25 @@ def test_delivery_input_rejects_invalid_contact_details():
             pass
         else:
             raise AssertionError(f"{field} should have been rejected")
+
+
+def test_order_lifecycle_event_contains_inventory_and_notification_data():
+    calls = []
+
+    class Connection:
+        async def execute(self, query, params):
+            calls.append((query, params))
+
+    row = {
+        "order_id": uuid4(),
+        "order_token": uuid4(),
+        "status": "REJECTED",
+        "items": [{"productId": "product-1", "quantity": 2}],
+        "delivery_info": {"email": "buyer@example.test"},
+    }
+    asyncio.run(add_order_lifecycle_event(Connection(), row, "OrderRejected"))
+    topic, key, envelope = calls[0][1]
+    assert topic == "aims.business.order.lifecycle.v1"
+    assert key == str(row["order_id"])
+    assert envelope.obj["eventType"] == "OrderRejected"
+    assert envelope.obj["payload"]["items"] == [{"productId": "product-1", "quantity": 2}]

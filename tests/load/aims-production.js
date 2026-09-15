@@ -87,23 +87,23 @@ export function checkout() {
     const catalog = http.get(`${baseUrl}/api/products/?page_size=20`, { headers: clientHeaders(), tags: { name: "GET /api/products/ checkout" } });
     if (!expect(catalog, 200, "checkout catalog")) return;
     const products = catalog.json("results") || [];
-    const product = products.find((item) => item.status === "ACTIVE") || products[0];
-    if (!product) {
-      businessFailures.add(true, { step: "select product" });
-      return;
+    let productId = "";
+    // Inventory writes require a Product Manager token. A customer/load test
+    // must never bypass that boundary, so choose an actually available item.
+    for (const product of products) {
+      const candidate = product.product_id || product.productId || product.id;
+      const stock = http.get(`${baseUrl}/api/inventory/${candidate}`, {
+        headers: clientHeaders(),
+        tags: { name: "GET /api/inventory/:id" },
+      });
+      if (stock.status === 200 && Number(stock.json("available") || 0) >= 1) {
+        productId = candidate;
+        break;
+      }
     }
-    const productId = product.product_id || product.productId || product.id;
-
-    const stock = http.get(`${baseUrl}/api/inventory/${productId}`, { headers: clientHeaders(), tags: { name: "GET /api/inventory/:id" } });
-    if (stock.status === 404 || Number(stock.json("available") || 0) < 1) {
-      const adjusted = http.post(
-        `${baseUrl}/api/inventory/${productId}/adjust`,
-        JSON.stringify({ delta: 1 }),
-        { ...jsonHeaders(), tags: { name: "POST /api/inventory/:id/adjust" } },
-      );
-      expect(adjusted, 200, "inventory seed");
-    } else {
-      expect(stock, 200, "inventory read");
+    if (!productId) {
+      businessFailures.add(true, { step: "select in-stock product" });
+      return;
     }
 
     const cartHeaders = { ...clientHeaders(), "X-Cart-Token": token };
@@ -122,8 +122,6 @@ export function checkout() {
     if (!expect(draft, 201, "order draft")) return;
     const orderId = draft.json("orderId");
     const cancelToken = draft.json("cancelToken");
-    const amount = draft.json("totalAmount");
-
     const delivery = http.post(
       `${baseUrl}/api/orders/${orderId}/delivery/`,
       JSON.stringify({
@@ -137,7 +135,14 @@ export function checkout() {
       }),
       { ...jsonHeaders(), tags: { name: "POST /api/orders/:id/delivery/" } },
     );
-    expect(delivery, 200, "order delivery");
+    if (!expect(delivery, 200, "order delivery")) return;
+
+    const invoice = http.get(`${baseUrl}/api/orders/${orderId}/invoice/`, {
+      headers: clientHeaders(),
+      tags: { name: "GET /api/orders/:id/invoice/" },
+    });
+    if (!expect(invoice, 200, "order invoice")) return;
+    const amount = invoice.json("totalAmountToPay");
 
     const confirmed = http.post(
       `${baseUrl}/api/orders/`,
@@ -172,12 +177,9 @@ export function checkout() {
         tags: { name: "DELETE /api/cart/items/:id/" },
       });
     }
-    if (cancelToken) {
-      http.post(`${baseUrl}/api/orders/${cancelToken}/cancel/`, null, {
-        headers: clientHeaders(),
-        tags: { name: "POST /api/orders/:token/cancel/" },
-      });
-    }
+    // K6-SIMULATION is not a refundable payment provider. Cancellation and
+    // refund are covered by the functional VietQR/PayPal acceptance tests.
+    void cancelToken;
   });
 
   checkoutDuration.add(Date.now() - started);

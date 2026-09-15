@@ -75,11 +75,12 @@ class NotificationRuntime:
             self.last_error = "Kafka TLS files are unavailable"
             logger.warning(self.last_error)
             return
+        topics = list(dict.fromkeys([
+            os.getenv("KAFKA_CONSUMER_TOPIC", os.getenv("KAFKA_NOTIFICATION_TOPIC", "aims.business.payment.completed.v1")),
+            os.getenv("KAFKA_LIFECYCLE_TOPIC", "aims.business.order.lifecycle.v1"),
+        ]))
         self.consumer = AIOKafkaConsumer(
-            os.getenv(
-                "KAFKA_CONSUMER_TOPIC",
-                os.getenv("KAFKA_NOTIFICATION_TOPIC", "aims.business.payment.completed.v1"),
-            ),
+            *topics,
             bootstrap_servers=bootstrap,
             group_id=os.getenv("KAFKA_CONSUMER_GROUP", "aims-notification-service.v1"),
             security_protocol="SSL",
@@ -150,7 +151,7 @@ class NotificationRuntime:
             self.running = False
 
     async def publish_task(self, event: EventEnvelope) -> None:
-        if event.eventType not in {"PaymentCompleted", "OrderConfirmed"}:
+        if event.eventType not in {"PaymentCompleted", "OrderConfirmed", "OrderApproved", "OrderRejected", "OrderCancelled"}:
             return
         if not self.task_exchange:
             raise RuntimeError("RabbitMQ task exchange is unavailable")
@@ -181,7 +182,7 @@ class NotificationRuntime:
 
     async def deliver(self, event: EventEnvelope) -> None:
         """Delivery adapter seam. Logging is safe for the first extracted slice."""
-        if event.eventType not in {"PaymentCompleted", "OrderConfirmed"}:
+        if event.eventType not in {"PaymentCompleted", "OrderConfirmed", "OrderApproved", "OrderRejected", "OrderCancelled"}:
             logger.info("Ignoring event type=%s eventId=%s", event.eventType, event.eventId)
             return
         self.processed += 1
@@ -223,7 +224,7 @@ async def readiness() -> dict[str, Any]:
 
 @app.post("/api/notifications/events", status_code=202)
 async def accept_internal_event(event: EventEnvelope) -> dict[str, Any]:
-    if event.eventType not in {"PaymentCompleted", "OrderConfirmed"}:
+    if event.eventType not in {"PaymentCompleted", "OrderConfirmed", "OrderApproved", "OrderRejected", "OrderCancelled"}:
         raise HTTPException(status_code=422, detail="Unsupported eventType")
     if not runtime.rabbit_ready:
         raise HTTPException(status_code=503, detail="RabbitMQ task queue unavailable")

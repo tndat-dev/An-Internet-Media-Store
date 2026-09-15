@@ -173,6 +173,34 @@ async def request_refund(order_id: str, reason: str) -> dict[str, Any]:
     return response.json()
 
 
+async def add_order_lifecycle_event(
+    connection: psycopg.AsyncConnection,
+    row: dict[str, Any],
+    event_type: str,
+) -> None:
+    event = {
+        "eventId": str(uuid.uuid4()),
+        "eventType": event_type,
+        "eventVersion": 1,
+        "occurredAt": datetime.now(timezone.utc).isoformat(),
+        "aggregateId": str(row["order_id"]),
+        "correlationId": str(row["order_id"]),
+        "payload": {
+            "status": row["status"],
+            "items": [
+                {"productId": item["productId"], "quantity": item["quantity"]}
+                for item in row["items"]
+            ],
+            "email": (row.get("delivery_info") or {}).get("email", ""),
+            "orderToken": str(row["order_token"]),
+        },
+    }
+    await connection.execute(
+        "INSERT INTO order_service.outbox_events(topic,message_key,payload) VALUES (%s,%s,%s)",
+        ("aims.business.order.lifecycle.v1", str(row["order_id"]), Jsonb(event)),
+    )
+
+
 def ssl_context() -> ssl.SSLContext | None:
     paths = [os.getenv("KAFKA_TLS_CERT", "/var/run/aims-kafka/user.crt"), os.getenv("KAFKA_TLS_KEY", "/var/run/aims-kafka/user.key"), os.getenv("KAFKA_TLS_CA", "/var/run/aims-kafka-ca/ca.crt")]
     if not all(os.path.exists(path) for path in paths):
@@ -416,8 +444,11 @@ async def cancel(cancel_token: uuid.UUID) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Only paid orders awaiting approval can be cancelled")
     refund = await request_refund(current["orderId"], "Customer cancelled order")
     async with await runtime.connect() as connection:
-        cursor = await connection.execute("UPDATE order_service.orders SET status='CANCELLED',refund_summary=%s,updated_at=now() WHERE cancel_token=%s AND status='PENDING_PROCESSING' RETURNING *", (Jsonb(refund), cancel_token))
-        row = await cursor.fetchone()
+        async with connection.transaction():
+            cursor = await connection.execute("UPDATE order_service.orders SET status='CANCELLED',refund_summary=%s,updated_at=now() WHERE cancel_token=%s AND status='PENDING_PROCESSING' RETURNING *", (Jsonb(refund), cancel_token))
+            row = await cursor.fetchone()
+            if row:
+                await add_order_lifecycle_event(connection, row, "OrderCancelled")
     if not row: raise HTTPException(status_code=409, detail="Order state changed before cancellation")
     return render_order(row)
 
@@ -453,8 +484,11 @@ async def manager_order(order_id: uuid.UUID, authorization: str | None = Header(
 async def approve_order(order_id: uuid.UUID, authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user = await require_product_manager(authorization)
     async with await runtime.connect() as connection:
-        cursor = await connection.execute("UPDATE order_service.orders SET status='APPROVED',processed_by=%s,processed_at=now(),updated_at=now() WHERE order_id=%s AND status='PENDING_PROCESSING' RETURNING *", (user["username"], order_id))
-        row = await cursor.fetchone()
+        async with connection.transaction():
+            cursor = await connection.execute("UPDATE order_service.orders SET status='APPROVED',processed_by=%s,processed_at=now(),updated_at=now() WHERE order_id=%s AND status='PENDING_PROCESSING' RETURNING *", (user["username"], order_id))
+            row = await cursor.fetchone()
+            if row:
+                await add_order_lifecycle_event(connection, row, "OrderApproved")
     if not row:
         raise HTTPException(status_code=409, detail="Only pending-processing orders can be approved")
     return render_order(row)
@@ -468,8 +502,11 @@ async def reject_order(order_id: uuid.UUID, payload: RejectOrderInput, authoriza
         raise HTTPException(status_code=409, detail="Only pending-processing orders can be rejected")
     refund = await request_refund(str(order_id), payload.reason)
     async with await runtime.connect() as connection:
-        cursor = await connection.execute("UPDATE order_service.orders SET status='REJECTED',processed_by=%s,processed_at=now(),rejection_reason=%s,refund_summary=%s,updated_at=now() WHERE order_id=%s AND status='PENDING_PROCESSING' RETURNING *", (user["username"], payload.reason, Jsonb(refund), order_id))
-        row = await cursor.fetchone()
+        async with connection.transaction():
+            cursor = await connection.execute("UPDATE order_service.orders SET status='REJECTED',processed_by=%s,processed_at=now(),rejection_reason=%s,refund_summary=%s,updated_at=now() WHERE order_id=%s AND status='PENDING_PROCESSING' RETURNING *", (user["username"], payload.reason, Jsonb(refund), order_id))
+            row = await cursor.fetchone()
+            if row:
+                await add_order_lifecycle_event(connection, row, "OrderRejected")
     if not row:
         raise HTTPException(status_code=409, detail="Order state changed before rejection")
     return render_order(row)

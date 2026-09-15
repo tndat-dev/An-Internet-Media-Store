@@ -15,12 +15,13 @@ from typing import Any
 import psycopg
 import httpx
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka.structs import TopicPartition
 from fastapi import FastAPI, Header, HTTPException
 from psycopg.rows import dict_row
 
 from app.observability import install_observability
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("aims.inventory")
@@ -61,6 +62,14 @@ CREATE TABLE IF NOT EXISTS inventory_service.stock (
 CREATE TABLE IF NOT EXISTS inventory_service.processed_events (
   event_id text PRIMARY KEY,
   processed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS inventory_service.reservations (
+  order_id text NOT NULL,
+  product_id text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  status text NOT NULL DEFAULT 'RESERVED',
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(order_id, product_id)
 );
 CREATE TABLE IF NOT EXISTS inventory_service.outbox_events (
   id bigserial PRIMARY KEY,
@@ -126,8 +135,12 @@ class InventoryRuntime:
             "security_protocol": "SSL",
             "ssl_context": ssl_context,
         }
-        self.consumer = AIOKafkaConsumer(
+        topics = list(dict.fromkeys([
             os.getenv("KAFKA_CONSUMER_TOPIC", "aims.business.order.created.v1"),
+            os.getenv("KAFKA_LIFECYCLE_TOPIC", "aims.business.order.lifecycle.v1"),
+        ]))
+        self.consumer = AIOKafkaConsumer(
+            *topics,
             group_id=os.getenv("KAFKA_CONSUMER_GROUP", "aims.inventory-service.v1"),
             enable_auto_commit=False,
             auto_offset_reset="earliest",
@@ -159,12 +172,23 @@ class InventoryRuntime:
         assert self.consumer is not None
         try:
             async for message in self.consumer:
-                event = EventEnvelope.model_validate(message.value)
-                if event.eventType != "OrderCreated":
-                    logger.info("Ignoring event type=%s eventId=%s", event.eventType, event.eventId)
-                else:
-                    await self.reserve_for_order(event)
+                try:
+                    event = EventEnvelope.model_validate(message.value)
+                    if event.eventType == "OrderCreated":
+                        await self.reserve_for_order(event)
+                    elif event.eventType in {"OrderApproved", "OrderRejected", "OrderCancelled"}:
+                        await self.finalize_reservation(event)
+                    else:
+                        logger.info("Ignoring event type=%s eventId=%s", event.eventType, event.eventId)
+                except ValidationError as error:
+                    logger.error("Discarding invalid event topic=%s offset=%s error=%s", message.topic, message.offset, error)
+                except Exception as error:
+                    self.last_error = str(error)
+                    self.consumer.seek(TopicPartition(message.topic, message.partition), message.offset)
+                    await asyncio.sleep(3)
+                    continue
                 await self.consumer.commit()
+                self.kafka_ready = True
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -190,6 +214,17 @@ class InventoryRuntime:
                 if await prior.fetchone():
                     return True
 
+                existing = await connection.execute(
+                    "SELECT 1 FROM inventory_service.reservations WHERE order_id=%s LIMIT 1",
+                    (event.aggregateId,),
+                )
+                if await existing.fetchone():
+                    await connection.execute(
+                        "INSERT INTO inventory_service.processed_events(event_id) VALUES (%s)",
+                        (event.eventId,),
+                    )
+                    return True
+
                 sufficient = True
                 current: dict[str, int] = {}
                 for item in sorted(items, key=lambda value: value.productId):
@@ -209,6 +244,10 @@ class InventoryRuntime:
                             "SET available=available-%s, reserved=reserved+%s, updated_at=now() "
                             "WHERE product_id=%s",
                             (item.quantity, item.quantity, item.productId),
+                        )
+                        await connection.execute(
+                            "INSERT INTO inventory_service.reservations(order_id,product_id,quantity) VALUES (%s,%s,%s)",
+                            (event.aggregateId, item.productId, item.quantity),
                         )
 
                 event_type = "InventoryReserved" if sufficient else "InventoryRejected"
@@ -244,6 +283,50 @@ class InventoryRuntime:
                     (event.eventId,),
                 )
         return sufficient
+
+    async def finalize_reservation(self, event: EventEnvelope) -> bool:
+        """Commit an approved sale or release stock for a cancelled/rejected order."""
+        if not self.database_url:
+            raise RuntimeError("Inventory database is unavailable")
+        async with await psycopg.AsyncConnection.connect(self.database_url, row_factory=dict_row) as connection:
+            async with connection.transaction():
+                prior = await connection.execute(
+                    "SELECT 1 FROM inventory_service.processed_events WHERE event_id=%s",
+                    (event.eventId,),
+                )
+                if await prior.fetchone():
+                    return True
+                reservations = await (
+                    await connection.execute(
+                        "SELECT * FROM inventory_service.reservations WHERE order_id=%s FOR UPDATE",
+                        (event.aggregateId,),
+                    )
+                ).fetchall()
+                if not reservations:
+                    raise RuntimeError(f"Reservation for order {event.aggregateId} is not available yet")
+                target = "COMMITTED" if event.eventType == "OrderApproved" else "RELEASED"
+                for reservation in reservations:
+                    if reservation["status"] != "RESERVED":
+                        continue
+                    if target == "COMMITTED":
+                        await connection.execute(
+                            "UPDATE inventory_service.stock SET reserved=reserved-%s,updated_at=now() WHERE product_id=%s AND reserved >= %s",
+                            (reservation["quantity"], reservation["product_id"], reservation["quantity"]),
+                        )
+                    else:
+                        await connection.execute(
+                            "UPDATE inventory_service.stock SET available=available+%s,reserved=reserved-%s,updated_at=now() WHERE product_id=%s AND reserved >= %s",
+                            (reservation["quantity"], reservation["quantity"], reservation["product_id"], reservation["quantity"]),
+                        )
+                    await connection.execute(
+                        "UPDATE inventory_service.reservations SET status=%s,updated_at=now() WHERE order_id=%s AND product_id=%s",
+                        (target, event.aggregateId, reservation["product_id"]),
+                    )
+                await connection.execute(
+                    "INSERT INTO inventory_service.processed_events(event_id) VALUES (%s)",
+                    (event.eventId,),
+                )
+        return True
 
     async def _publish_outbox(self) -> None:
         assert self.producer is not None
