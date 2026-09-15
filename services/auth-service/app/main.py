@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import os
 import secrets
 from typing import Any
@@ -95,7 +98,20 @@ async def userinfo(token: str) -> dict[str, Any]:
         response = await client.get(f"{issuer()}/protocol/openid-connect/userinfo", headers={"Authorization": f"Bearer {token}"})
     if response.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    return response.json()
+    verified = response.json()
+    # Keycloak verifies signature, issuer, expiration and session before this
+    # point. Some realms omit realm_access from the userinfo response even
+    # though it is present in the already-verified access token. Merge only
+    # role claims whose subject matches the verified userinfo subject.
+    try:
+        encoded = token.split(".")[1]
+        encoded += "=" * (-len(encoded) % 4)
+        access_claims = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+        if access_claims.get("sub") == verified.get("sub"):
+            verified["realm_access"] = access_claims.get("realm_access", {})
+    except (IndexError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
+        pass
+    return verified
 
 
 async def token_request(username: str, password: str) -> dict[str, Any]:
