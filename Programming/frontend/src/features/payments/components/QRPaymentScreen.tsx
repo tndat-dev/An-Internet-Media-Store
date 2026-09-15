@@ -67,11 +67,12 @@ function QRPaymentShell({
 }
 
 function QRDisplay({ payment }: { payment: VietQRPaymentResponse }) {
-  if (payment.qr_code) {
+  const qrValue = payment.qr_code || payment.qr_payload;
+  if (qrValue) {
     return (
       <div className="qr-code-frame">
         <QRCodeCanvas
-          value={payment.qr_code}
+          value={qrValue}
           size={220}
           level="H"
           includeMargin={true}

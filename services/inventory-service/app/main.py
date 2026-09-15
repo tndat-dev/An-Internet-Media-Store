@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import psycopg
+import httpx
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from psycopg.rows import dict_row
 
 from app.observability import install_observability
@@ -46,6 +47,7 @@ class EventEnvelope(BaseModel):
 
 class StockAdjustment(BaseModel):
     delta: int
+    reason: str = Field(min_length=1, max_length=500)
 
 
 SCHEMA_SQL = """
@@ -315,6 +317,18 @@ class InventoryRuntime:
 runtime = InventoryRuntime()
 
 
+async def require_product_manager(authorization: str | None) -> None:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication is required")
+    auth_url = os.getenv("AUTH_SERVICE_URL", "http://auth-service.production.svc.cluster.local:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=8) as client:
+        response = await client.get(f"{auth_url}/api/auth/me/", headers={"Authorization": authorization})
+    if response.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+    if not set(response.json().get("roles", [])) & {"PRODUCT_MANAGER", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Product Manager role is required")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
@@ -347,7 +361,8 @@ async def readiness() -> dict[str, Any]:
 
 
 @app.post("/api/inventory/{product_id}/adjust")
-async def adjust_stock(product_id: str, adjustment: StockAdjustment) -> dict[str, Any]:
+async def adjust_stock(product_id: str, adjustment: StockAdjustment, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    await require_product_manager(authorization)
     try:
         return await runtime.adjust(product_id, adjustment.delta)
     except ValueError as error:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { capturePayPalPayment, initiatePayPalPayment } from "../services/paymentApi";
+import { capturePayPalPayment, getPaymentProviderConfig, initiatePayPalPayment } from "../services/paymentApi";
 
 type PayPalButtonOptions = {
   createOrder: () => Promise<string>;
@@ -40,10 +40,19 @@ export function PayPalPaymentButton({
 }: PayPalPaymentButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clientId, setClientId] = useState(process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? "");
+  const [configLoaded, setConfigLoaded] = useState(Boolean(process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID));
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
-  const configurationError = clientId ? null : "Missing NEXT_PUBLIC_PAYPAL_CLIENT_ID in frontend/.env";
+  const configurationError = configLoaded && !clientId ? "PayPal is not configured on the payment service" : null;
+
+  useEffect(() => {
+    if (clientId) return;
+    getPaymentProviderConfig()
+      .then((config) => setClientId(config.paypalClientId))
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load payment configuration"))
+      .finally(() => setConfigLoaded(true));
+  }, [clientId]);
 
   useEffect(() => {
     if (!clientId) {

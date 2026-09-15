@@ -28,7 +28,7 @@ function toQueryString(params: Record<string, string | undefined>) {
 }
 
 export function listProducts(search = "") {
-  const query = search ? `?search=${encodeURIComponent(search)}` : "";
+  const query = `?scope=manager${search ? `&search=${encodeURIComponent(search)}` : ""}`;
   return apiClient<Product[]>(`/products/${query}`);
 }
 

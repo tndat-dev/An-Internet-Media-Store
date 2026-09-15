@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -26,8 +27,10 @@ CREATE TABLE IF NOT EXISTS cart_service.items (
   cart_item_id uuid PRIMARY KEY, cart_id uuid NOT NULL REFERENCES cart_service.carts(cart_id) ON DELETE CASCADE,
   product_id text NOT NULL, product_title text NOT NULL, product_type text NOT NULL,
   image_url text NOT NULL DEFAULT '', unit_price numeric(14,2) NOT NULL,
+  unit_weight numeric(10,2) NOT NULL DEFAULT 0.5,
   quantity integer NOT NULL CHECK(quantity > 0), UNIQUE(cart_id, product_id)
 );
+ALTER TABLE cart_service.items ADD COLUMN IF NOT EXISTS unit_weight numeric(10,2) NOT NULL DEFAULT 0.5;
 """
 
 
@@ -88,19 +91,25 @@ async def ensure_cart(connection: psycopg.AsyncConnection, token: str) -> uuid.U
 def render_cart(cart: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
     rendered = []
     subtotal = Decimal("0")
+    stock_errors = []
     for item in items:
         line = item["unit_price"] * item["quantity"]
         subtotal += line
+        available = int(item.get("available", item.get("stock_quantity", 0)))
+        shortage = max(0, item["quantity"] - available)
+        if shortage:
+            stock_errors.append({"productId": item["product_id"], "productTitle": item["product_title"], "requestedQuantity": item["quantity"], "availableQuantity": available, "shortageQuantity": shortage})
         rendered.append({
             "cartItemId": str(item["cart_item_id"]), "productId": item["product_id"],
             "productTitle": item["product_title"], "productType": item["product_type"],
             "imageUrl": item["image_url"], "unitPrice": str(item["unit_price"]),
-            "quantity": item["quantity"], "lineSubtotal": str(line), "stockQuantity": 999,
-            "productStatus": "ACTIVE", "stockWarning": None,
+            "unitWeight": str(item.get("unit_weight", Decimal("0.5"))),
+            "quantity": item["quantity"], "lineSubtotal": str(line), "stockQuantity": available,
+            "productStatus": "ACTIVE" if available > 0 else "DEACTIVATED", "stockWarning": f"Short by {shortage}" if shortage else None,
         })
     return {"cartId": str(cart["cart_id"]), "cartToken": cart["cart_token"], "status": cart["status"],
             "items": rendered, "subtotalExclVat": str(subtotal),
-            "totalItems": sum(item["quantity"] for item in items), "canPlaceOrder": bool(items), "stockErrors": []}
+            "totalItems": sum(item["quantity"] for item in items), "canPlaceOrder": bool(items) and not stock_errors, "stockErrors": stock_errors}
 
 
 def empty_cart(token: str) -> dict[str, Any]:
@@ -127,6 +136,11 @@ async def load_cart(token: str) -> dict[str, Any]:
         cart_id = cart["cart_id"]
         item_cursor = await connection.execute("SELECT * FROM cart_service.items WHERE cart_id=%s ORDER BY product_title", (cart_id,))
         items = await item_cursor.fetchall()
+    inventory_url = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service.production.svc.cluster.local:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=8) as client:
+        responses = await asyncio.gather(*(client.get(f"{inventory_url}/api/inventory/{item['product_id']}") for item in items), return_exceptions=True)
+    for item, response in zip(items, responses):
+        item["available"] = response.json().get("available", 0) if isinstance(response, httpx.Response) and response.status_code == 200 else 0
     return render_cart(cart, items)
 
 
@@ -156,8 +170,8 @@ async def add_item(payload: ItemMutation, x_cart_token: str | None = Header(defa
     async with await runtime.connect() as connection:
         cart_id = await ensure_cart(connection, token)
         await connection.execute(
-            "INSERT INTO cart_service.items(cart_item_id,cart_id,product_id,product_title,product_type,image_url,unit_price,quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=cart_service.items.quantity+EXCLUDED.quantity",
-            (uuid.uuid4(), cart_id, payload.productId, product.get("title", "Product"), product.get("product_type", "UNKNOWN"), product.get("image_url", ""), Decimal(str(product["price"])), payload.quantity),
+            "INSERT INTO cart_service.items(cart_item_id,cart_id,product_id,product_title,product_type,image_url,unit_price,unit_weight,quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=cart_service.items.quantity+EXCLUDED.quantity,product_title=EXCLUDED.product_title,product_type=EXCLUDED.product_type,image_url=EXCLUDED.image_url,unit_price=EXCLUDED.unit_price,unit_weight=EXCLUDED.unit_weight",
+            (uuid.uuid4(), cart_id, payload.productId, product.get("title", "Product"), product.get("product_type", "UNKNOWN"), product.get("image_url", ""), Decimal(str(product["price"])), max(Decimal(str(product.get("weight", "0.5"))), Decimal("0.5")), payload.quantity),
         )
     return await load_cart(token)
 

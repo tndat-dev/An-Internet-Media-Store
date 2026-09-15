@@ -33,10 +33,14 @@ const initialForm: DeliveryInfoPayload = {
 
 const fieldMap: Record<string, keyof DeliveryInfoPayload> = {
   name: "customerName",
+  customerName: "customerName",
   phone: "phoneNumber",
+  phoneNumber: "phoneNumber",
   email: "email",
   province: "deliveryProvince",
+  deliveryProvince: "deliveryProvince",
   address: "deliveryAddress",
+  deliveryAddress: "deliveryAddress",
   deliveryMethod: "deliveryMethod",
 };
 

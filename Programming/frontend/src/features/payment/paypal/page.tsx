@@ -41,7 +41,7 @@ import { formatVND } from "@/lib/formatMoney";
 type PageState = "idle" | "capturing" | "success" | "failed" | "cancelled";
 
 // Read base URL from env — never use window.location.origin (crashes SSR)
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+const CONFIGURED_BASE_URL = process.env.NEXT_PUBLIC_BASE_URL?.trim() ?? "";
 const CARD_PAYMENT_PATH = "/checkout/payment/card";
 
 function PayPalPaymentInner() {
@@ -54,6 +54,7 @@ function PayPalPaymentInner() {
   const orderId = searchParams.get("order_id") ?? "";
   const amountVnd = searchParams.get("amount_vnd") ?? "";
   const paypalCurrency = process.env.NEXT_PUBLIC_PAYPAL_CURRENCY ?? "USD";
+  const baseUrl = CONFIGURED_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "");
 
   // PayPal injects these on return after buyer action
   const providerOrderId = searchParams.get("token");   // present on both approve & cancel
@@ -70,10 +71,10 @@ function PayPalPaymentInner() {
   const deliveryProvince = searchParams.get("delivery_province");
 
   const returnUrl =
-    `${BASE_URL}${CARD_PAYMENT_PATH}` +
+    `${baseUrl}${CARD_PAYMENT_PATH}` +
     `?order_id=${orderId}&amount_vnd=${amountVnd}`;
   const cancelUrl =
-    `${BASE_URL}${CARD_PAYMENT_PATH}` +
+    `${baseUrl}${CARD_PAYMENT_PATH}` +
     `?order_id=${orderId}&amount_vnd=${amountVnd}&cancelled=true`;
   const paymentMethodHref = `/checkout/payment?orderId=${encodeURIComponent(orderId)}&amount=${encodeURIComponent(amountVnd)}`;
 

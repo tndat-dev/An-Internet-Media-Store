@@ -41,6 +41,13 @@ import {
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "/api";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
+export type PaymentProviderConfig = {
+  paypalClientId: string;
+  paypalCurrency: string;
+  paypalConfigured: boolean;
+  vietqrConfigured: boolean;
+};
+
 function paymentApiUrl(path: string): string {
   const apiBase = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -62,6 +69,10 @@ async function fetchJson<T>(url: string, options: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function getPaymentProviderConfig(): Promise<PaymentProviderConfig> {
+  return fetchJson<PaymentProviderConfig>(paymentApiUrl("/payments/config/"), { method: "GET" });
 }
 
 /**

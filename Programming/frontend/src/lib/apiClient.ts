@@ -33,6 +33,24 @@ function flattenFieldErrors(body: unknown): Record<string, string> {
   if (typeof body !== "object" || body === null) {
     return result;
   }
+  const detail = (body as { detail?: unknown }).detail;
+  // FastAPI/Pydantic validation errors use
+  // `{detail: [{loc: ["body", "field"], msg: "..."}]}`.
+  if (Array.isArray(detail)) {
+    for (const issue of detail) {
+      if (typeof issue !== "object" || issue === null) continue;
+      const location = (issue as { loc?: unknown }).loc;
+      const message = (issue as { msg?: unknown }).msg;
+      if (Array.isArray(location) && typeof message === "string") {
+        const field = [...location].reverse().find((part) => typeof part === "string" && part !== "body");
+        if (typeof field === "string") result[field] = message.replace(/^Value error, /, "");
+      }
+    }
+    return result;
+  }
+  if (typeof detail === "object" && detail !== null && !Array.isArray(detail)) {
+    return flattenFieldErrors(detail);
+  }
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
     if (Array.isArray(value)) {
       if (value.length > 0) result[key] = String(value[0]);
