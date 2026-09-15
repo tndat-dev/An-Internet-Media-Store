@@ -36,10 +36,14 @@ def test_adjust_uses_ci_postgres_when_configured(monkeypatch):
     async def allow_test_manager(_authorization):
         return None
     monkeypatch.setattr("app.main.require_product_manager", allow_test_manager)
+    product_id = f"product-{uuid.uuid4()}"
     with TestClient(app) as client:
-        response = client.post("/api/inventory/product-1/adjust", json={"delta": 5, "reason": "CI stock receipt"}, headers={"Authorization": "Bearer test"})
+        response = client.post(f"/api/inventory/{product_id}/adjust", json={"delta": 5, "reason": "CI stock receipt"}, headers={"Authorization": "Bearer test"})
+        decrease = client.post(f"/api/inventory/{product_id}/adjust", json={"delta": -5, "reason": "CI stock cleanup"}, headers={"Authorization": "Bearer test"})
     assert response.status_code == 200
-    assert response.json()["available"] >= 5
+    assert response.json()["available"] == 5
+    assert decrease.status_code == 200
+    assert decrease.json()["available"] == 0
 
 
 def test_reservation_is_released_or_committed_from_order_lifecycle():

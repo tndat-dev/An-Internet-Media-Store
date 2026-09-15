@@ -373,14 +373,24 @@ class InventoryRuntime:
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
         ) as connection:
-            cursor = await connection.execute(
-                "INSERT INTO inventory_service.stock(product_id,available) VALUES (%s,%s) "
-                "ON CONFLICT(product_id) DO UPDATE "
-                "SET available=inventory_service.stock.available+EXCLUDED.available, updated_at=now() "
-                "WHERE inventory_service.stock.available+EXCLUDED.available >= 0 "
-                "RETURNING product_id,available,reserved,updated_at",
-                (product_id, delta),
-            )
+            if delta < 0:
+                # An INSERT candidate with negative available violates the
+                # CHECK constraint before PostgreSQL reaches ON CONFLICT.
+                # Decrements must update an existing stock row instead.
+                cursor = await connection.execute(
+                    "UPDATE inventory_service.stock SET available=available+%s,updated_at=now() "
+                    "WHERE product_id=%s AND available+%s >= 0 "
+                    "RETURNING product_id,available,reserved,updated_at",
+                    (delta, product_id, delta),
+                )
+            else:
+                cursor = await connection.execute(
+                    "INSERT INTO inventory_service.stock(product_id,available) VALUES (%s,%s) "
+                    "ON CONFLICT(product_id) DO UPDATE "
+                    "SET available=inventory_service.stock.available+EXCLUDED.available, updated_at=now() "
+                    "RETURNING product_id,available,reserved,updated_at",
+                    (product_id, delta),
+                )
             row = await cursor.fetchone()
             if not row:
                 raise ValueError("Adjustment would make available stock negative")
