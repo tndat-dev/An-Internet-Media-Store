@@ -4,7 +4,7 @@
 **Học phần/nhóm:** ISD.20252-18  
 **Môi trường:** cụm kubeadm tại mạng `10.1.16.0/24`  
 **Namespace ứng dụng:** `production`  
-**Ngày chốt báo cáo:** 14/09/2026
+**Ngày chốt báo cáo:** 16/09/2026
 **Mã nguồn và Infrastructure as Code:** `Programming/k8s/`
 
 > Báo cáo không ghi mật khẩu, token, private key hoặc giá trị Secret. Các bí mật
@@ -48,8 +48,8 @@ khôi phục đúng quorum 3 control-plane; địa chỉ `.238` hiện là worke
 
 ### 2.2 Trạng thái ứng dụng
 
-- 10 Argo Rollout, mỗi service 2 replica: tổng 20 pod Ready.
-- Phân bố workload microservice cuối: `6–7–7`, max skew bằng 1.
+- 10 Argo Rollout, mỗi service 4 replica: tổng 40 pod Ready.
+- Phân bố workload microservice cuối quan sát ngày 16/09: `14–14–12`; topology-spread vẫn phủ cả ba worker nhưng max skew là 2 ở mức pod tức thời.
 - PostgreSQL CNPG: 3/3 instance, một instance trên mỗi worker.
 - Kafka KRaft: 3/3 broker/controller, một pod trên mỗi worker.
 - RabbitMQ: 3/3, Redis: 3 replica kèm 3 Sentinel.
@@ -580,8 +580,9 @@ kubectl -n production get pods \
   -o jsonpath='{range .items[*]}{.metadata.name}{" source="}{.metadata.annotations.aims\.hust\.vn/source-revision}{"\n"}{end}'
 ```
 
-Tiêu chí: Argo CD `Synced/Healthy`, 10/10 Rollout `Healthy`, 20/20 pod Ready,
-phân bố 6–7–7 (max skew 1).
+Tiêu chí hiện tại: Argo CD `Synced/Healthy`, 10/10 Rollout `Healthy`, 40/40
+microservice pod Ready. HPA đang giữ 4 replica/service; phân bố quan sát là
+14–14–12. Không ghi max skew 1 khi snapshot thực tế là 2.
 Frontend do Helm quản lý có 2/2 replica Ready, non-root và rootfs chỉ đọc.
 
 ### 8.3 Data/messaging
@@ -758,6 +759,25 @@ Gateway: catalog HTTP 200/JSON, 60 sản phẩm; đăng ký synthetic HTTP 200, 
 thái `ACTIVE`, role `CUSTOMER`, sau đó cleanup Keycloak thành công. Audit chốt
 6/6 node Ready, 10/10 Rollout Healthy, 40 microservice pod ready, 0 pod/Job/PVC
 lỗi và Argo CD `Synced/Healthy` đúng revision promotion.
+
+### 9.7 Acceptance theo problem statement ngày 16/09/2026
+
+Acceptance đầu tiên phát hiện ba lỗi không thấy được từ trạng thái Pod/Argo:
+Redis limiter của một gateway rơi vào `fail-open` và không tự reconnect; outbox
+publisher order/payment kết thúc task khi gặp lỗi publish; inventory decrement
+dùng `INSERT ... ON CONFLICT` với số âm nên bị PostgreSQL CHECK chặn trước nhánh
+update. Các sửa đổi thêm reconnect, retry + timeout + `FOR UPDATE SKIP LOCKED`,
+và dùng `UPDATE` riêng cho decrement.
+
+GitHub Actions build/scan/SBOM/Cosign/SLSA thành công source `e17578a6b952`,
+commit promotion `c8ea0ae` pin digest. Acceptance run `1789529432` trên đúng
+revision này PASS toàn bộ assertion được tự động hóa: Keycloak role/admin,
+catalog/cart, VAT/phí giao hàng, Kafka `OrderCreated → InventoryReserved →
+PaymentCompleted`, VietQR sandbox, order `PENDING_PROCESSING`, approve/cancel/
+reject, manual refund và inventory commit/release. Cuối run: order/payment
+outbox 0 unpublished, Argo CD `Synced/Healthy`, 0 pod non-Running, 0 product và
+0 Keycloak user test còn active. Ma trận đầy đủ và giới hạn kiểm thử nằm trong
+`AIMS_PROBLEM_STATEMENT_ACCEPTANCE_REPORT.md`.
 
 ## 10. Rủi ro và việc còn lại
 

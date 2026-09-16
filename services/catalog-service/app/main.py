@@ -87,6 +87,9 @@ class DeleteProductsInput(BaseModel):
     product_ids: list[uuid.UUID] = Field(min_length=1, max_length=10)
 
 
+# SOLID/OCP review: this closed list couples every new product subtype to the
+# core validator. Extract a ProductTypeValidator registry before adding a future
+# non-media or AI-reader type; the current scope supports physical media only.
 REQUIRED_TYPE_FIELDS = {
     "BOOK": {"authors", "cover_type", "publisher", "publication_date"},
     "NEWSPAPER": {"editor_in_chief", "publisher", "publication_date"},

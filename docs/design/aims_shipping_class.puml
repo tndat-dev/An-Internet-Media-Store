@@ -1,0 +1,26 @@
+@startuml
+title AIMS shipping policy refactor (implemented)
+skinparam classAttributeIconSize 0
+interface WeightStrategy {
+  +chargeable_weight(items): Decimal
+}
+class ActualWeightStrategy {
+  +chargeable_weight(items): Decimal
+}
+class AimsShippingPolicy {
+  -weight_strategy: WeightStrategy
+  +calculate(province, items, order_value): Decimal
+  +fee(province, weight, order_value): Decimal
+}
+class OrderService {
+  +delivery_preview()
+  +save_delivery()
+}
+ActualWeightStrategy ..|> WeightStrategy
+AimsShippingPolicy o--> WeightStrategy
+OrderService --> AimsShippingPolicy : current tariff
+note right of WeightStrategy
+  Future volumetric strategy is only an
+  extension scenario, not implemented.
+end note
+@enduml

@@ -417,6 +417,9 @@ async def refund_order(order_id: str, payload: OrderRefundRequest) -> dict[str, 
     if not row or row["status"] not in {"SUCCESS", "COMPLETED"}:
         raise HTTPException(status_code=409, detail="A successful payment is required before refund")
     base = {"paymentMethod": row["provider"], "paymentStatus": row["status"], "paymentAmount": str(row["amount"]), "paymentCurrency": row["currency"], "captureId": row.get("capture_id"), "refundAmount": str(row["amount"]), "refundReason": payload.reason}
+    # SOLID/OCP+DIP review: these provider branches couple the workflow to two
+    # concrete gateways. A future provider belongs behind PaymentGateway and
+    # optional RefundableGateway adapters, not another branch in this endpoint.
     if row["provider"] == "VIETQR":
         return {**base, "refundStatus": "MANUAL_REQUIRED", "refundMethod": "MANUAL_BANK_TRANSFER"}
     if row["provider"] != "PAYPAL" or not row.get("capture_id"):

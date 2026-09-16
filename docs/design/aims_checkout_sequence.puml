@@ -1,0 +1,44 @@
+@startuml
+title AIMS checkout / inventory / payment lifecycle (implemented lab flow)
+actor Customer
+participant "API Gateway" as GW
+participant "Cart" as CART
+participant "Order" as ORD
+participant "Shipping Policy" as SHIP
+database "PostgreSQL Outbox" as OUT
+queue "Kafka" as KAFKA
+participant "Inventory" as INV
+participant "Payment" as PAY
+queue "RabbitMQ" as RMQ
+participant "Notification" as NOTI
+Customer -> GW : create cart and draft
+GW -> CART : check availability
+GW -> ORD : create draft
+Customer -> GW : delivery details
+GW -> ORD : save delivery
+ORD -> SHIP : actual weight tariff + 10% VAT
+SHIP --> ORD : invoice payable
+Customer -> GW : confirm order
+GW -> ORD : confirm
+ORD -> OUT : OrderCreated (transactional)
+OUT -> KAFKA : publish, mark published after ack
+KAFKA -> INV : OrderCreated
+INV -> INV : reserve stock idempotently
+INV -> KAFKA : InventoryReserved
+KAFKA -> PAY : InventoryReserved
+PAY -> RMQ : payment.execute
+RMQ -> PAY : ack/DLQ task
+Customer -> GW : sandbox VietQR/PayPal payment
+GW -> PAY : provider callback/capture
+PAY -> OUT : PaymentCompleted
+OUT -> KAFKA : publish, mark published after ack
+KAFKA -> ORD : PaymentCompleted
+ORD -> ORD : PENDING_PROCESSING
+KAFKA -> NOTI : PaymentCompleted
+NOTI -> RMQ : notification.deliver
+RMQ -> NOTI : ack/DLQ task
+note right of NOTI
+  Current adapter logs delivery only.
+  SMTP email is not yet live.
+end note
+@enduml

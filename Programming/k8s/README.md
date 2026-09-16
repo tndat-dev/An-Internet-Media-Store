@@ -1,7 +1,7 @@
 # AIMS Kubernetes production-like platform
 
 Thư mục này chứa desired state và runbook cho AIMS trong namespace
-`production`. Trạng thái nghiệm thu gần nhất 14/09/2026: 3 control-plane + 3
+`production`. Trạng thái nghiệm thu gần nhất 16/09/2026: 3 control-plane + 3
 worker, 10 Argo Rollout có HPA 2–4 replica và 2 frontend pod,
 CloudNativePG 3/3, Kafka KRaft, RabbitMQ, Redis, MinIO, OpenSearch và Velero hoạt
 động. PSA Restricted được Enforce; verifier AIMS và CKS đều trả exit code 0.
@@ -195,7 +195,7 @@ Packages. GHCR package public không cần pull secret; package private phải c
 `imagePullSecret` qua Vault/External Secrets. Secret, token, password và private
 key không thuộc source code.
 
-Trạng thái live 14/09/2026: Argo CD và Argo Rollouts đều khỏe; 10/10 Rollout
+Trạng thái live 16/09/2026: Argo CD và Argo Rollouts đều khỏe; 10/10 Rollout
 AIMS `Healthy`. `Application/aims-production` đã đọc chart trên GitHub
 `main`, automated sync/prune/self-heal; cụm chưa cài GitLab Runner. Argo CD UI/API
 được expose NodePort `30081`, Rollouts Dashboard `30100`. Jenkins vẫn Ready
@@ -206,10 +206,11 @@ và typecheck PASS, YAML pipeline parse PASS, Docker build backend/frontend PASS
 Helm lint/render PASS. `config/settings.py` giữ environment làm nguồn ưu tiên để
 CI `DATABASE_URL`/Vault Secret không bị `.env.local` ghi đè.
 
-Release frontend/API mới nhất `fcd69b2eea74` qua GitHub Actions run
-`34870500992` và promotion `48e4312`; API base browser đã được cố định về
-same-origin `/api`. Catalog live trả JSON với 60 sản phẩm và đăng ký synthetic
-qua Gateway/Keycloak trả user `ACTIVE/CUSTOMER`, sau đó cleanup thành công.
+Release business-flow mới nhất dùng source `e17578a6b952`, promotion `c8ea0ae`;
+API base browser dùng same-origin `/api`. Acceptance run `1789529432` qua
+Gateway đã PASS registration/admin, catalog/cart, VAT/delivery, Kafka outbox,
+inventory reservation, VietQR sandbox và approve/cancel/reject; dữ liệu test
+product và Keycloak user được cleanup sau run.
 Release tải trước đó đạt 663/663 check, 0% lỗi, p95 303,72 ms. Metric OTLP
 của đủ 10 service hiện được Prometheus scrape tại Collector thay vì scrape pod
 trực tiếp; Tempo đã trả trace thật của API Gateway.

@@ -2,7 +2,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from app.main import EventEnvelope, app, runtime
+from app.main import EventEnvelope, NotificationRuntime, app, runtime
 
 
 def test_health_is_independent_from_monolith():
@@ -76,3 +76,21 @@ def test_order_lifecycle_event_is_supported(monkeypatch):
     monkeypatch.setattr(runtime, "task_exchange", Exchange())
     asyncio.run(runtime.publish_task(event))
     assert published[0][1] == "notification.deliver"
+
+
+def test_delivery_channel_is_injected_without_changing_kafka_runtime():
+    sent = []
+
+    class FakeChannel:
+        async def send(self, event):
+            sent.append(event.eventId)
+
+    service = NotificationRuntime(channel=FakeChannel())
+    event = EventEnvelope.model_validate({
+        "eventId": "event-1", "eventType": "OrderApproved", "eventVersion": 1,
+        "occurredAt": "2026-09-15T00:00:00Z", "aggregateId": "order-1",
+        "correlationId": "order-1", "payload": {},
+    })
+    asyncio.run(service.deliver(event))
+    assert sent == ["event-1"]
+    assert service.processed == 1

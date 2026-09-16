@@ -4,7 +4,7 @@
 
 **Cụm nghiệm thu:** kubeadm, 3 control-plane + 3 worker
 
-**Thời điểm chốt trạng thái:** 14/09/2026 (Asia/Bangkok)
+**Thời điểm chốt trạng thái:** 16/09/2026 (Asia/Bangkok)
 **Repository chuẩn:** `tndat-dev/An-Internet-Media-Store`, nhánh `main`
 
 ## 1. Mục đích và nguồn sự thật
@@ -36,7 +36,7 @@ flowchart TB
     U[Trình duyệt / API client] -->|HTTP 31088 hoặc HTTPS 32725| IG[Istio Gateway API<br/>aims-ingress]
     IG --> RT[HTTPRoute aims-web]
     RT --> FE[Frontend x2]
-    RT --> API[10 Service / 20 pod<br/>Argo Rollouts]
+    RT --> API[10 Service / 40 pod<br/>Argo Rollouts]
 
     subgraph Ambient[Istio Ambient]
       Z[ztunnel trên 6 node<br/>HBONE + mTLS]
@@ -99,6 +99,16 @@ Các resource nền/operator không nên bị Argo CD nhận ownership một cá
 Script `deploy-aims-platform.sh` bootstrap chúng theo thứ tự CRD/operator trước,
 custom resource sau. `deploy-aims-resources.sh` chỉ reconcile desired state
 AIMS/data/policy khi không muốn nâng cấp chart quan sát lớn.
+
+### 3.1 Bằng chứng reconcile và business flow mới nhất
+
+Source `e17578a6b952` được CI build/scan, tạo SBOM, ký và attest; promotion
+`c8ea0ae` cập nhật image digest. Argo CD live ở `Synced/Healthy`, annotation
+source của Rollout khớp `e17578a6`, 10/10 Rollout Healthy, mỗi service 4 replica.
+Acceptance run `1789529432` chứng minh cả request đồng bộ và event bất đồng bộ:
+outbox publish Kafka, inventory giữ chỗ, payment completion chuyển order,
+approve/cancel/reject phát lifecycle event và inventory commit/release. Không
+dùng `Pod Running` làm bằng chứng duy nhất.
 
 ## 4. Luồng request từ ngoài vào AIMS
 

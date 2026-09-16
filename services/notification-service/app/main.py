@@ -14,7 +14,7 @@ import os
 import ssl
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from app.observability import install_observability
 
@@ -38,10 +38,28 @@ class EventEnvelope(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class DeliveryChannel(Protocol):
+    async def send(self, event: EventEnvelope) -> None: ...
+
+
+class LoggingDeliveryChannel:
+    """Lab adapter. A message logged here is not an email sent to a customer."""
+
+    async def send(self, event: EventEnvelope) -> None:
+        logger.info(
+            "notification-observed eventId=%s aggregateId=%s correlationId=%s at=%s",
+            event.eventId,
+            event.aggregateId,
+            event.correlationId,
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+
 class NotificationRuntime:
     """Owns Kafka lifecycle; readiness stays true when Kafka reconnects."""
 
-    def __init__(self) -> None:
+    def __init__(self, channel: DeliveryChannel | None = None) -> None:
+        self.channel: DeliveryChannel = channel or LoggingDeliveryChannel()
         self.consumer: AIOKafkaConsumer | None = None
         self.tasks: list[asyncio.Task] = []
         self.rabbit_connection: Any = None
@@ -181,18 +199,12 @@ class NotificationRuntime:
                     logger.exception("Notification task rejected to DLQ")
 
     async def deliver(self, event: EventEnvelope) -> None:
-        """Delivery adapter seam. Logging is safe for the first extracted slice."""
+        """Call the injected channel after validating a supported event."""
         if event.eventType not in {"PaymentCompleted", "OrderConfirmed", "OrderApproved", "OrderRejected", "OrderCancelled"}:
             logger.info("Ignoring event type=%s eventId=%s", event.eventType, event.eventId)
             return
+        await self.channel.send(event)
         self.processed += 1
-        logger.info(
-            "notification-delivered eventId=%s aggregateId=%s correlationId=%s at=%s",
-            event.eventId,
-            event.aggregateId,
-            event.correlationId,
-            datetime.now(timezone.utc).isoformat(),
-        )
 
 
 runtime = NotificationRuntime()

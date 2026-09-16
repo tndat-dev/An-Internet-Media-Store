@@ -426,10 +426,14 @@ metadata, file handle, recovery time và controller load.
 Order, inventory, payment, notification và security-telemetry đã dùng Kafka thật
 qua TLS 9093. Order/payment/inventory dùng transactional outbox; consumer lưu
 event ID và commit offset sau side effect để bảo đảm at-least-once + idempotency.
-E2E release ngày 14/09/2026 chạy checkout production-like: `OrderCreated` được
-inventory consume, payment task đi RabbitMQ, kết quả thanh toán quay lại Kafka
-và notification task đi RabbitMQ. Outbox được đánh dấu published; queue trở về
-0 ready/0 unacked sau khi consumer xử lý.
+Smoke E2E ngày 14/09/2026 từng cho thấy consumer/task queue có traffic, nhưng
+acceptance chi tiết ngày 15/09 phát hiện order/payment outbox task có thể chết
+và để row unpublished. Vì vậy bằng chứng cũ không đủ để kết luận toàn bộ flow.
+Sau khi thêm retry, timeout và row locking, release source `e17578a6b952` được
+promotion ở `c8ea0ae`; acceptance run `1789529432` ngày 16/09 chứng minh lại
+`OrderCreated` → inventory reservation → payment task RabbitMQ →
+`PaymentCompleted` → order `PENDING_PROCESSING`, cùng lifecycle approve/cancel/
+reject. Order/payment outbox cuối run đều 0 unpublished.
 
 Các bước nâng cấp ngoài phạm vi lab:
 
