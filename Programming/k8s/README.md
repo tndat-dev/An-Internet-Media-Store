@@ -26,6 +26,13 @@ backup cùng quy trình chứng minh Git/live đồng bộ nằm tại
 [`../../AIMS_OPERATION_FLOW_REPORT.md`](../../AIMS_OPERATION_FLOW_REPORT.md).
 Runbook riêng cho cluster tối giản chỉ có Kafka, Jenkins, Argo CD và PostgreSQL
 nằm tại [`../../AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md`](../../AIMS_MINIMAL_CLUSTER_DEPLOYMENT.md).
+Ma trận nghiệm thu theo đề bài nằm tại
+[`../../AIMS_PROBLEM_STATEMENT_ACCEPTANCE_REPORT.md`](../../AIMS_PROBLEM_STATEMENT_ACCEPTANCE_REPORT.md).
+Báo cáo refactor có bản
+[`SOLID`](../../AIMS_SOLID_REPORT.md),
+[`Design Patterns`](../../AIMS_DESIGN_PATTERNS_REPORT.md) và
+[`bản kết hợp`](../../AIMS_SOLID_DESIGN_PATTERNS_REPORT.md); PDF cùng tên nằm
+ngay thư mục gốc repository.
 
 ## Cấu trúc
 

@@ -49,7 +49,7 @@ khôi phục đúng quorum 3 control-plane; địa chỉ `.238` hiện là worke
 ### 2.2 Trạng thái ứng dụng
 
 - 10 Argo Rollout, mỗi service 4 replica: tổng 40 pod Ready.
-- Phân bố workload microservice cuối quan sát ngày 16/09: `14–14–12`; topology-spread vẫn phủ cả ba worker nhưng max skew là 2 ở mức pod tức thời.
+- Phân bố workload microservice cuối quan sát ngày 16/09: `13–14–13`, max skew bằng 1.
 - PostgreSQL CNPG: 3/3 instance, một instance trên mỗi worker.
 - Kafka KRaft: 3/3 broker/controller, một pod trên mỗi worker.
 - RabbitMQ: 3/3, Redis: 3 replica kèm 3 Sentinel.
@@ -582,7 +582,7 @@ kubectl -n production get pods \
 
 Tiêu chí hiện tại: Argo CD `Synced/Healthy`, 10/10 Rollout `Healthy`, 40/40
 microservice pod Ready. HPA đang giữ 4 replica/service; phân bố quan sát là
-14–14–12. Không ghi max skew 1 khi snapshot thực tế là 2.
+13–14–13, max skew 1.
 Frontend do Helm quản lý có 2/2 replica Ready, non-root và rootfs chỉ đọc.
 
 ### 8.3 Data/messaging
@@ -778,6 +778,11 @@ reject, manual refund và inventory commit/release. Cuối run: order/payment
 outbox 0 unpublished, Argo CD `Synced/Healthy`, 0 pod non-Running, 0 product và
 0 Keycloak user test còn active. Ma trận đầy đủ và giới hạn kiểm thử nằm trong
 `AIMS_PROBLEM_STATEMENT_ACCEPTANCE_REPORT.md`.
+
+Full audit sau acceptance trả exit code 0: 6/6 node Ready, không có pod/Job/PVC
+lỗi, workload phân bố `13–14–13`; data/messaging, ingress/mesh, supply-chain,
+Trivy, audit logging, kube-bench, Tetragon/Falco, Velero backup và isolated
+restore drill đều PASS.
 
 ## 10. Rủi ro và việc còn lại
 
