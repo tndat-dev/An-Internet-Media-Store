@@ -46,5 +46,6 @@ Không in token, password, API secret vào log. Nếu bị ngắt giữa chừng
 - `inventory-service` cùng PostgreSQL 17 tạm: 4 tests pass, gồm negative adjustment.
 - Live acceptance run cũ `1789471712` đã phát hiện Redis fail-open, outbox unpublished và inventory decrement lỗi. Các bản sửa nằm ở `65aafca`, `e17578a`, được CI build/scan/SBOM/sign/attest và promotion `c8ea0ae` đưa vào cụm.
 - Live acceptance run mới `1789529432` tại revision `c8ea0ae` trả `ACCEPTANCE PASS`: identity/admin/catalog/cart/invoice, Redis, Kafka, RabbitMQ-mediated workflow, inventory, VietQR sandbox, approve/cancel/reject và manual refund đều đạt. Sau test: ArgoCD `Synced/Healthy`, 0 pod non-Running, 0 active synthetic acceptance product, 0 `accept-*` test user.
+- Regression cuối `1789556723` chạy sau refactor notification, trên source `7a706d8f` và GitOps revision `612df4d4`, cũng trả `ACCEPTANCE PASS`. Bốn notification replica đều báo Kafka/RabbitMQ ready, `lastError=None`, và log `notification-observed` cho lifecycle event; đây vẫn là log adapter chứ chưa phải SMTP email.
 
 Không quy đổi test pass thành “mọi chức năng hoàn thành”. Các gap ở bảng trên là backlog cần implement hoặc nghiệm thu riêng.

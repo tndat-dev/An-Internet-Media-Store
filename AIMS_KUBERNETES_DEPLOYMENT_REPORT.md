@@ -784,6 +784,11 @@ lỗi, workload phân bố `13–14–13`; data/messaging, ingress/mesh, supply-
 Trivy, audit logging, kube-bench, Tetragon/Falco, Velero backup và isolated
 restore drill đều PASS.
 
+Sau refactor `DeliveryChannel`, CI source `7a706d8f` và promotion `f198886`
+thành công. Regression `1789556723` tiếp tục `ACCEPTANCE PASS`; audit cuối tại
+Git revision `612df4d4` xác nhận Argo `Synced/Healthy`, 10 Rollout/40 pod Ready,
+0 pod/Job/PVC lỗi và toàn bộ stateful core Ready.
+
 ## 10. Rủi ro và việc còn lại
 
 | Mức | Nội dung | Khuyến nghị |
