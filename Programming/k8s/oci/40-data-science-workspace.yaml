@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-science
+  labels:
+    app.kubernetes.io/part-of: aims-platform
+    environment: development
+    owner: chulinh
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: data-science-quota
+  namespace: data-science
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 24Gi
+    limits.cpu: "10"
+    limits.memory: 48Gi
+    requests.storage: 200Gi
+    persistentvolumeclaims: "4"
+    pods: "20"
+    services: "10"
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+    configmaps: "30"
+    secrets: "30"
+    count/jobs.batch: "20"
+    count/cronjobs.batch: "5"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: data-science-defaults
+  namespace: data-science
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 250m
+        memory: 512Mi
+      default:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 50m
+        memory: 128Mi
+      max:
+        cpu: "6"
+        memory: 24Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-science-workload
+  namespace: data-science
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: data-science-developer
+  namespace: data-science
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - events
+      - persistentvolumeclaims
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - secrets
+      - serviceaccounts
+      - services
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources:
+      - pods/attach
+      - pods/exec
+      - pods/portforward
+    verbs: ["get", "create"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: data-science-chulinh
+  namespace: data-science
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: ocid1.group.oc1..aaaaaaaaddgpk6kukjg7hkvpfqzczz7uboy7fmpxx467ptq3cla6uyp5vdqq
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: data-science-developer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: data-science-boundary-reader
+  namespace: data-science
+rules:
+  - apiGroups: [""]
+    resources:
+      - limitranges
+      - resourcequotas
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: data-science-boundary-reader-chulinh
+  namespace: data-science
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: ocid1.group.oc1..aaaaaaaaddgpk6kukjg7hkvpfqzczz7uboy7fmpxx467ptq3cla6uyp5vdqq
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: data-science-boundary-reader

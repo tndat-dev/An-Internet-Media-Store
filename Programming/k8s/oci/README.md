@@ -21,10 +21,16 @@ Istio Ambient, Vault, Longhorn, MinIO, RabbitMQ, OpenSearch, gVisor và profile
 12. Private LB `10.1.2.145` → ba worker port `32080`
 13. Public LB `140.245.85.157` → private LB port `80`
 14. Regional WAF `aims-public-waf` ở chế độ phát hiện (`CHECK`)
+15. `40-data-science-workspace.yaml`: namespace, quota và RBAC cho `chulinh`
+16. `41-data-science-kafka.yaml`: Kafka mTLS user và ba topic `ds.*`
 
 Trạng thái xác nhận ngày 23/09/2026: ba node Ready; 11 Deployment AIMS đều
 2/2; PostgreSQL 3/3; Kafka KRaft 3/3; hai LB Healthy. Auth dùng PostgreSQL
 trực tiếp, không cần Keycloak; catalog và inventory đã có 12 sản phẩm demo.
+Data Science dùng chung cụm trong namespace `data-science`; Kafka user/topic
+được tách khỏi AIMS bằng certificate và ACL riêng.
+
+Hướng dẫn cho user mới: [CHULINH_DATA_SCIENCE_RUNBOOK.md](../../../docs/oci/CHULINH_DATA_SCIENCE_RUNBOOK.md).
 Endpoint lab hiện tại:
 
 ```text
