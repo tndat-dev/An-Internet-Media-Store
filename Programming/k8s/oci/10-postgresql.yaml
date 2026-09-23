@@ -1,0 +1,39 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: aims-postgres
+  namespace: data
+  labels:
+    app.kubernetes.io/name: aims-postgres
+    app.kubernetes.io/part-of: aims-platform
+    environment: development
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+  bootstrap:
+    initdb:
+      database: aims_admin
+      owner: aims_admin
+      encoding: UTF8
+  storage:
+    storageClass: oci-bv-retain
+    # OCI Block Volume provisions a minimum 50 GiB volume.
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: 256MB
+      log_min_duration_statement: "1000"
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+  monitoring:
+    enablePodMonitor: false

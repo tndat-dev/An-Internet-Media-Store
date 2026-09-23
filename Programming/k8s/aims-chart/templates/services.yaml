@@ -4,7 +4,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ .name }}
-  namespace: production
+  namespace: {{ $.Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/part-of: aims
@@ -14,7 +14,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .name }}
-  namespace: production
+  namespace: {{ $.Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/part-of: aims
@@ -28,11 +28,11 @@ spec:
       port: 8000
       targetPort: http
 ---
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
+apiVersion: {{ if eq $.Values.workloadKind "Deployment" }}apps/v1{{ else }}argoproj.io/v1alpha1{{ end }}
+kind: {{ $.Values.workloadKind }}
 metadata:
   name: {{ .name }}
-  namespace: production
+  namespace: {{ $.Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/part-of: aims
@@ -43,6 +43,12 @@ spec:
     matchLabels:
       app.kubernetes.io/name: {{ .name }}
   strategy:
+    {{- if eq $.Values.workloadKind "Deployment" }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
     canary:
       maxSurge: 1
       maxUnavailable: 0
@@ -58,6 +64,7 @@ spec:
               - name: service-name
                 value: {{ .name | quote }}
         - setWeight: 100
+    {{- end }}
   template:
     metadata:
       annotations:
@@ -88,19 +95,21 @@ spec:
         fsGroup: 10001
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
-          {{- if .localhostProfiles }}
+          {{- if and .localhostProfiles (not $.Values.disableLocalhostProfiles) }}
           type: Localhost
           localhostProfile: profiles/aims-runtime.json
           {{- else }}
           type: RuntimeDefault
           {{- end }}
+        {{- if $.Values.appArmorEnabled }}
         appArmorProfile:
-          {{- if .localhostProfiles }}
+          {{- if and .localhostProfiles (not $.Values.disableLocalhostProfiles) }}
           type: Localhost
           localhostProfile: aims-restricted
           {{- else }}
           type: RuntimeDefault
           {{- end }}
+        {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -144,7 +153,7 @@ spec:
             - name: AIMS_SERVICE_NAME
               value: {{ .name | quote }}
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: {{ (.kafkaBootstrap | default $.Values.integrations.kafkaBootstrap) | quote }}
+              value: {{ ($.Values.integrations.kafkaBootstrapOverride | default .kafkaBootstrap | default $.Values.integrations.kafkaBootstrap) | quote }}
             - name: KAFKA_BUSINESS_TOPIC
               value: {{ $.Values.integrations.kafkaBusinessTopic | quote }}
             - name: KAFKA_SECURITY_TOPIC
@@ -169,6 +178,10 @@ spec:
                   fieldPath: metadata.namespace
             - name: DEPLOYMENT_ENVIRONMENT
               value: production
+            {{- range $name, $value := $.Values.globalExtraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
             {{- if .kafkaConsumerTopic }}
             - name: KAFKA_CONSUMER_TOPIC
               value: {{ .kafkaConsumerTopic | quote }}
@@ -265,14 +278,14 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .name }}
-  namespace: production
+  namespace: {{ $.Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/part-of: aims
 spec:
   scaleTargetRef:
-    apiVersion: argoproj.io/v1alpha1
-    kind: Rollout
+    apiVersion: {{ if eq $.Values.workloadKind "Deployment" }}apps/v1{{ else }}argoproj.io/v1alpha1{{ end }}
+    kind: {{ $.Values.workloadKind }}
     name: {{ .name }}
   minReplicas: {{ $.Values.autoscaling.minReplicas }}
   maxReplicas: {{ $.Values.autoscaling.maxReplicas }}

@@ -1,0 +1,126 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: aims-services
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+    app.kubernetes.io/part-of: aims-platform
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: aims.
+          patternType: prefix
+        operations:
+          - Read
+          - Write
+          - Describe
+          - Create
+      - resource:
+          type: group
+          name: aims.
+          patternType: prefix
+        operations:
+          - Read
+          - Describe
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.order.created.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.order.created.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.business.order.lifecycle.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.business.order.lifecycle.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.inventory.reserved.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.inventory.reserved.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.inventory.rejected.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.inventory.rejected.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.payment.completed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.payment.completed.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: aims.security.telemetry.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aims-kafka
+spec:
+  topicName: aims.security.telemetry.v1
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    cleanup.policy: delete
+    retention.ms: 604800000

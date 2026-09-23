@@ -5,6 +5,16 @@ backendImage:
 imagePullSecrets:
 - name: ghcr-pull
 
+# Rollout is used by the full platform profile. Set this to Deployment on OKE
+# when Argo Rollouts and the Prometheus analysis stack are not installed yet.
+workloadKind: Rollout
+analysis:
+  enabled: true
+routing:
+  enabled: true
+disableLocalhostProfiles: false
+appArmorEnabled: true
+
 # Immutable source revision used to force a controlled rollout when a node-local
 # lab image is rebuilt under the stable prod-sim tag. Registry deployments use
 # an image digest and update this value to the commit that produced that digest.
@@ -28,6 +38,7 @@ frontend:
       memory: 512Mi
 
 runtimeSecret: aims-runtime
+globalExtraEnv: {}
 
 services:
 - name: api-gateway
@@ -41,7 +52,7 @@ services:
   replicas: 2
   image:
     repository: ghcr.io/tndat-dev/aims-auth-service
-    tag: sha256:90c06698b6864f0a753a7e04394b05c3cc056a0298c8d8c94689e5c98cfb662c
+    tag: sha256:36e58460748c5a891981db70750fc48455ab14289ccd40defbd6eb1c425cf77a
     pullPolicy: IfNotPresent
   sourceRevision: 7a706d8f7790e2dcac84ab88939331ddfcd9b6e9
 - name: catalog-service
@@ -122,11 +133,13 @@ services:
   kafkaTlsSecret: aims-services
   kafkaClusterCaSecret: aims-kafka-cluster-ca-cert
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9093
-  kafkaConsumerTopic: aims-security-telemetry
+  kafkaConsumerTopic: aims.security.telemetry.v1
 
   sourceRevision: 7a706d8f7790e2dcac84ab88939331ddfcd9b6e9
 integrations:
   kafkaBootstrap: aims-kafka-kafka-bootstrap.production.svc.cluster.local:9092
+  # When set, this takes precedence over service-specific bootstrap addresses.
+  kafkaBootstrapOverride: ""
   kafkaBusinessTopic: aims-business-events
   kafkaSecurityTopic: aims-security-telemetry
   redisHost: aims-redis-sentinel-sentinel.production.svc.cluster.local

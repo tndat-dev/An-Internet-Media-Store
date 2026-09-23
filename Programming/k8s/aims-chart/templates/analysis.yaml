@@ -1,8 +1,9 @@
+{{- if .Values.analysis.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
   name: aims-service-slo
-  namespace: production
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/part-of: aims
 spec:
@@ -42,3 +43,4 @@ spec:
               and on()
               sum(rate(http_server_duration_milliseconds_count{job="production/{{ `{{args.service-name}}` }}"}[2m])) > 0
             ) or vector(0)
+{{- end }}

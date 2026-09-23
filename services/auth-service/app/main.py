@@ -1,37 +1,75 @@
-"""Keycloak-backed authentication boundary; this service stores no passwords."""
+"""PostgreSQL-backed authentication and user administration for AIMS."""
 
 from __future__ import annotations
 
 import base64
-import binascii
-import json
+import hashlib
+import hmac
 import os
 import secrets
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import httpx
+import psycopg
 from fastapi import FastAPI, Header, HTTPException, Response
+from psycopg.errors import UniqueViolation
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from app.observability import install_observability
 
 
+BUSINESS_ROLES = {"CUSTOMER", "PRODUCT_MANAGER", "ADMIN"}
+PAGE_SIZE = 20
+SCHEMA_SQL = """
+CREATE SCHEMA IF NOT EXISTS auth_service;
+CREATE TABLE IF NOT EXISTS auth_service.users (
+  user_id uuid PRIMARY KEY,
+  username text NOT NULL,
+  email text NOT NULL,
+  password_hash text NOT NULL,
+  full_name text NOT NULL DEFAULT '',
+  phone text NOT NULL DEFAULT '',
+  status text NOT NULL DEFAULT 'ACTIVE'
+    CHECK (status IN ('ACTIVE', 'DEACTIVATED', 'BLOCKED')),
+  roles text[] NOT NULL DEFAULT ARRAY['CUSTOMER']::text[],
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  last_login timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS auth_users_username_ci
+  ON auth_service.users (lower(username));
+CREATE UNIQUE INDEX IF NOT EXISTS auth_users_email_ci
+  ON auth_service.users (lower(email));
+CREATE TABLE IF NOT EXISTS auth_service.tokens (
+  token_hash text PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth_service.users(user_id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_tokens_user ON auth_service.tokens(user_id);
+CREATE INDEX IF NOT EXISTS auth_tokens_expiry ON auth_service.tokens(expires_at);
+"""
+
+
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=1024)
     fullName: str = Field(default="", max_length=255)
     phone: str = Field(default="", max_length=30)
 
 
 class ChangePasswordRequest(BaseModel):
-    oldPassword: str = Field(min_length=1)
-    newPassword: str = Field(min_length=8)
+    oldPassword: str = Field(min_length=1, max_length=1024)
+    newPassword: str = Field(min_length=8, max_length=1024)
 
 
 class AdminCreateUserRequest(BaseModel):
@@ -50,22 +88,16 @@ class AdminStatusRequest(BaseModel):
     status: str
 
 
-BUSINESS_ROLES = {"CUSTOMER", "PRODUCT_MANAGER", "ADMIN"}
+def database_url() -> str:
+    return os.getenv("AUTH_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 
 
-def issuer() -> str:
-    return os.getenv(
-        "KEYCLOAK_ISSUER",
-        "http://keycloak-keycloakx-http.keycloak.svc.cluster.local/auth/realms/aims",
-    ).rstrip("/")
-
-
-def client_id() -> str:
-    return os.getenv("KEYCLOAK_CLIENT_ID", "aims-app")
-
-
-def admin_base() -> str:
-    return issuer().split("/realms/", 1)[0]
+def token_ttl() -> timedelta:
+    try:
+        hours = max(1, int(os.getenv("AUTH_TOKEN_TTL_HOURS", "168")))
+    except ValueError:
+        hours = 168
+    return timedelta(hours=hours)
 
 
 def token_from_header(authorization: str | None) -> str:
@@ -77,194 +109,187 @@ def token_from_header(authorization: str | None) -> str:
     return token
 
 
-def map_user(claims: dict[str, Any]) -> dict[str, Any]:
-    realm_roles = claims.get("realm_access", {}).get("roles", [])
-    mapped = []
-    for role in realm_roles:
-        normalized = str(role).upper().replace("-", "_")
-        if normalized in {"CUSTOMER", "PRODUCT_MANAGER", "ADMIN"}:
-            mapped.append(normalized)
-    return {
-        "userId": claims.get("sub", ""),
-        "username": claims.get("preferred_username", claims.get("email", "")),
-        "email": claims.get("email", ""),
-        "status": "ACTIVE",
-        "roles": mapped or ["CUSTOMER"],
-    }
+def hash_password(password: str, *, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    return "scrypt$16384$8$1$%s$%s" % (
+        base64.urlsafe_b64encode(salt).decode(),
+        base64.urlsafe_b64encode(digest).decode(),
+    )
 
 
-async def userinfo(token: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(f"{issuer()}/protocol/openid-connect/userinfo", headers={"Authorization": f"Bearer {token}"})
-    if response.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    verified = response.json()
-    # Keycloak verifies signature, issuer, expiration and session before this
-    # point. Some realms omit realm_access from the userinfo response even
-    # though it is present in the already-verified access token. Merge only
-    # role claims whose subject matches the verified userinfo subject.
+def verify_password(password: str, encoded: str) -> bool:
     try:
-        encoded = token.split(".")[1]
-        encoded += "=" * (-len(encoded) % 4)
-        access_claims = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
-        if access_claims.get("sub") == verified.get("sub"):
-            verified["realm_access"] = access_claims.get("realm_access", {})
-    except (IndexError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
-        pass
-    return verified
+        algorithm, n, r, p, salt_value, expected_value = encoded.split("$", 5)
+        if algorithm != "scrypt":
+            return False
+        salt = base64.urlsafe_b64decode(salt_value.encode())
+        expected = base64.urlsafe_b64decode(expected_value.encode())
+        actual = hashlib.scrypt(password.encode(), salt=salt, n=int(n), r=int(r), p=int(p), dklen=len(expected))
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
 
 
-async def token_request(username: str, password: str) -> dict[str, Any]:
-    data = {
-        "grant_type": "password",
-        "client_id": client_id(),
-        "username": username,
-        "password": password,
-        "scope": "openid profile email roles",
+def token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def user_view(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "userId": str(row["user_id"]),
+        "username": row["username"],
+        "email": row["email"],
+        "fullName": row.get("full_name", ""),
+        "phone": row.get("phone", ""),
+        "status": row["status"],
+        "roles": list(row.get("roles") or ["CUSTOMER"]),
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+        "lastLogin": row["last_login"].isoformat() if row.get("last_login") else None,
     }
-    client_secret = os.getenv("KEYCLOAK_CLIENT_SECRET")
-    if client_secret:
-        data["client_secret"] = client_secret
-    async with httpx.AsyncClient(timeout=10) as client:
-        result = await client.post(f"{issuer()}/protocol/openid-connect/token", data=data)
-    if result.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return result.json()
 
 
-async def admin_token() -> str:
-    client_secret = os.getenv("KEYCLOAK_CLIENT_SECRET", "")
-    if not client_secret:
-        raise HTTPException(status_code=503, detail="Keycloak client credential is unavailable")
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(
-            f"{issuer()}/protocol/openid-connect/token",
-            data={"grant_type": "client_credentials", "client_id": client_id(), "client_secret": client_secret},
+async def get_connection() -> psycopg.AsyncConnection[Any]:
+    url = database_url()
+    if not url:
+        raise HTTPException(status_code=503, detail="Authentication database is not configured")
+    return await psycopg.AsyncConnection.connect(url, row_factory=dict_row)
+
+
+async def issue_token(connection: psycopg.AsyncConnection[Any], user_id: uuid.UUID) -> str:
+    token = secrets.token_urlsafe(32)
+    await connection.execute(
+        "INSERT INTO auth_service.tokens(token_hash,user_id,expires_at) VALUES (%s,%s,%s)",
+        (token_digest(token), user_id, datetime.now(timezone.utc) + token_ttl()),
+    )
+    return token
+
+
+async def authenticated_user(authorization: str | None) -> tuple[dict[str, Any], str]:
+    token = token_from_header(authorization)
+    async with await get_connection() as connection:
+        cursor = await connection.execute(
+            """SELECT u.* FROM auth_service.tokens t
+            JOIN auth_service.users u ON u.user_id=t.user_id
+            WHERE t.token_hash=%s AND t.expires_at > now() AND u.status='ACTIVE'""",
+            (token_digest(token),),
         )
-    if response.status_code != 200:
-        raise HTTPException(status_code=503, detail="Keycloak administration is unavailable")
-    return response.json()["access_token"]
+        row = await cursor.fetchone()
+        await connection.execute("DELETE FROM auth_service.tokens WHERE expires_at <= now()")
+    if row is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+    return row, token
 
 
 async def require_admin(authorization: str | None) -> dict[str, Any]:
-    claims = await userinfo(token_from_header(authorization))
-    if "ADMIN" not in map_user(claims)["roles"]:
+    user, _ = await authenticated_user(authorization)
+    if "ADMIN" not in (user.get("roles") or []):
         raise HTTPException(status_code=403, detail="Administrator role is required")
-    return claims
+    return user
 
 
-async def realm_role(client: httpx.AsyncClient, token: str, name: str) -> dict[str, Any]:
-    response = await client.get(f"{admin_base()}/admin/realms/aims/roles/{name}", headers={"Authorization": f"Bearer {token}"})
-    if response.status_code != 200:
-        raise HTTPException(status_code=422, detail=f"Unknown role: {name}")
-    return response.json()
+database_ready = False
 
 
-async def admin_user_view(client: httpx.AsyncClient, token: str, representation: dict[str, Any]) -> dict[str, Any]:
-    user_id = representation["id"]
-    roles_response = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm", headers={"Authorization": f"Bearer {token}"})
-    roles = [role["name"] for role in roles_response.json() if role.get("name") in BUSINESS_ROLES] if roles_response.status_code == 200 else []
-    attributes = representation.get("attributes") or {}
-    status = (attributes.get("aimsStatus") or ["ACTIVE" if representation.get("enabled", False) else "DEACTIVATED"])[0]
-    full_name = " ".join(filter(None, [representation.get("firstName", ""), representation.get("lastName", "")])).strip()
-    return {
-        "userId": user_id,
-        "username": representation.get("username", ""),
-        "email": representation.get("email", ""),
-        "fullName": full_name,
-        "phone": (attributes.get("phone") or [""])[0],
-        "status": status,
-        "roles": roles,
-        "createdAt": representation.get("createdTimestamp", 0),
-        "lastLogin": None,
-    }
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global database_ready
+    url = database_url()
+    if not url:
+        database_ready = False
+        yield
+        return
+    async with await psycopg.AsyncConnection.connect(url) as connection:
+        await connection.execute("SELECT pg_advisory_xact_lock(hashtext('aims-auth-schema-v1'))")
+        await connection.execute(SCHEMA_SQL)
+    database_ready = True
+    yield
 
 
-app = FastAPI(title="AIMS auth-service", version="1.0.0")
+app = FastAPI(title="AIMS auth-service", version="2.0.0", lifespan=lifespan)
 install_observability(app)
 
 
 @app.get("/healthz")
 @app.get("/api/health/")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "auth-service", "issuer": issuer()}
+async def health() -> dict[str, Any]:
+    return {"status": "ok" if database_ready else "degraded", "service": "auth-service", "databaseReady": database_ready}
 
 
 @app.get("/api/auth/config/")
-async def oidc_config() -> dict[str, str]:
-    return {"issuer": issuer(), "clientId": client_id()}
+async def auth_config() -> dict[str, str]:
+    return {"provider": "database", "issuer": "", "clientId": "aims-web"}
+
+
+@app.post("/api/auth/register/", status_code=201)
+async def register(payload: RegisterRequest) -> dict[str, Any]:
+    username = payload.username.strip()
+    email = payload.email.strip().lower()
+    if not username or "@" not in email:
+        raise HTTPException(status_code=422, detail="A valid username and email are required")
+    user_id = uuid.uuid4()
+    try:
+        async with await get_connection() as connection:
+            cursor = await connection.execute(
+                """INSERT INTO auth_service.users(
+                  user_id,username,email,password_hash,full_name,phone,roles
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (user_id, username, email, hash_password(payload.password), payload.fullName.strip(), payload.phone.strip(), ["CUSTOMER"]),
+            )
+            row = await cursor.fetchone()
+            token = await issue_token(connection, user_id)
+    except UniqueViolation as exc:
+        raise HTTPException(status_code=400, detail="Username or email already exists") from exc
+    return {"token": token, "user": user_view(row)}
 
 
 @app.post("/api/auth/login/")
 async def login(payload: LoginRequest) -> dict[str, Any]:
-    token = (await token_request(payload.username, payload.password))["access_token"]
-    return {"token": token, "user": map_user(await userinfo(token))}
+    identity = payload.username.strip()
+    async with await get_connection() as connection:
+        cursor = await connection.execute(
+            "SELECT * FROM auth_service.users WHERE lower(username)=lower(%s) OR lower(email)=lower(%s) LIMIT 1",
+            (identity, identity),
+        )
+        row = await cursor.fetchone()
+        if row is None or not verify_password(payload.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if row["status"] != "ACTIVE":
+            raise HTTPException(status_code=403, detail="Account is not active")
+        now = datetime.now(timezone.utc)
+        await connection.execute("UPDATE auth_service.users SET last_login=%s,updated_at=%s WHERE user_id=%s", (now, now, row["user_id"]))
+        row["last_login"] = now
+        token = await issue_token(connection, row["user_id"])
+    return {"token": token, "user": user_view(row)}
 
 
 @app.get("/api/auth/me/")
 async def me(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    return map_user(await userinfo(token_from_header(authorization)))
+    row, _ = await authenticated_user(authorization)
+    return user_view(row)
 
 
 @app.post("/api/auth/logout/", status_code=204)
-async def logout() -> Response:
+async def logout(authorization: str | None = Header(default=None)) -> Response:
+    token = token_from_header(authorization)
+    async with await get_connection() as connection:
+        await connection.execute("DELETE FROM auth_service.tokens WHERE token_hash=%s", (token_digest(token),))
     return Response(status_code=204)
 
 
-@app.post("/api/auth/register/")
-async def register(payload: RegisterRequest) -> dict[str, Any]:
-    token = await admin_token()
-    headers = {"Authorization": f"Bearer {token}"}
-    names = payload.fullName.strip().split(" ", 1)
-    representation = {
-        "username": payload.username,
-        "email": payload.email,
-        "enabled": True,
-        "emailVerified": False,
-        "firstName": names[0] if names else "",
-        "lastName": names[1] if len(names) > 1 else "",
-        "attributes": {"phone": [payload.phone]} if payload.phone else {},
-        "credentials": [{"type": "password", "value": payload.password, "temporary": False}],
-    }
-    async with httpx.AsyncClient(timeout=10) as client:
-        created = await client.post(f"{admin_base()}/admin/realms/aims/users", json=representation, headers=headers)
-        if created.status_code == 409:
-            raise HTTPException(status_code=400, detail="Username or email already exists")
-        if created.status_code != 201:
-            raise HTTPException(status_code=503, detail="Keycloak could not create the account")
-        user_id = created.headers["location"].rstrip("/").rsplit("/", 1)[-1]
-        role = await client.get(f"{admin_base()}/admin/realms/aims/roles/CUSTOMER", headers=headers)
-        if role.status_code != 200:
-            raise HTTPException(status_code=503, detail="Keycloak CUSTOMER role is unavailable")
-        assigned = await client.post(
-            f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm",
-            json=[role.json()],
-            headers=headers,
+@app.post("/api/auth/change-password/")
+async def change_password(payload: ChangePasswordRequest, authorization: str | None = Header(default=None)) -> dict[str, str]:
+    user, _ = await authenticated_user(authorization)
+    if not verify_password(payload.oldPassword, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    async with await get_connection() as connection:
+        await connection.execute(
+            "UPDATE auth_service.users SET password_hash=%s,updated_at=now() WHERE user_id=%s",
+            (hash_password(payload.newPassword), user["user_id"]),
         )
-        if assigned.status_code != 204:
-            raise HTTPException(status_code=503, detail="Keycloak could not assign the customer role")
-    return await login(LoginRequest(username=payload.username, password=payload.password))
-
-
-@app.post("/api/auth/change-password/", status_code=204)
-async def change_password(
-    payload: ChangePasswordRequest,
-    authorization: str | None = Header(default=None),
-) -> Response:
-    access_token = token_from_header(authorization)
-    claims = await userinfo(access_token)
-    await token_request(str(claims.get("preferred_username", "")), payload.oldPassword)
-    token = await admin_token()
-    user_id = str(claims.get("sub", ""))
-    async with httpx.AsyncClient(timeout=10) as client:
-        changed = await client.put(
-            f"{admin_base()}/admin/realms/aims/users/{user_id}/reset-password",
-            json={"type": "password", "value": payload.newPassword, "temporary": False},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    if changed.status_code != 204:
-        raise HTTPException(status_code=503, detail="Keycloak could not change the password")
-    return Response(status_code=204)
+        await connection.execute("DELETE FROM auth_service.tokens WHERE user_id=%s", (user["user_id"],))
+        token = await issue_token(connection, user["user_id"])
+    return {"token": token}
 
 
 @app.get("/api/admin/users/")
@@ -272,113 +297,125 @@ async def list_admin_users(
     authorization: str | None = Header(default=None), search: str = "", role: str = "", status: str = "", page: int = 1,
 ) -> dict[str, Any]:
     await require_admin(authorization)
-    token = await admin_token()
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get(
-            f"{admin_base()}/admin/realms/aims/users",
-            params={"search": search, "first": max(0, (page - 1) * 20), "max": 20},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if response.status_code != 200:
-            raise HTTPException(status_code=503, detail="Keycloak users are unavailable")
-        users = [await admin_user_view(client, token, item) for item in response.json()]
-        count_response = await client.get(f"{admin_base()}/admin/realms/aims/users/count", params={"search": search}, headers={"Authorization": f"Bearer {token}"})
+    page = max(1, page)
+    conditions: list[str] = []
+    parameters: list[Any] = []
+    if search:
+        conditions.append("(username ILIKE %s OR email ILIKE %s OR full_name ILIKE %s)")
+        parameters.extend([f"%{search}%"] * 3)
     if role:
-        users = [user for user in users if role in user["roles"]]
+        conditions.append("%s = ANY(roles)")
+        parameters.append(role.upper())
     if status:
-        users = [user for user in users if user["status"] == status]
-    count = len(users) if role or status else (count_response.json() if count_response.status_code == 200 else len(users))
-    return {"count": count, "next": page + 1 if page * 20 < count else None, "previous": page - 1 if page > 1 else None, "results": users}
+        conditions.append("status=%s")
+        parameters.append(status.upper())
+    where = " WHERE " + " AND ".join(conditions) if conditions else ""
+    async with await get_connection() as connection:
+        count_cursor = await connection.execute(f"SELECT count(*) AS count FROM auth_service.users{where}", parameters)
+        count = (await count_cursor.fetchone())["count"]
+        cursor = await connection.execute(
+            f"SELECT * FROM auth_service.users{where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            [*parameters, PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+        users = await cursor.fetchall()
+    return {"count": count, "next": page + 1 if page * PAGE_SIZE < count else None, "previous": page - 1 if page > 1 else None, "results": [user_view(user) for user in users]}
 
 
 @app.post("/api/admin/users/", status_code=201)
 async def create_admin_user(payload: AdminCreateUserRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
     await require_admin(authorization)
-    invalid = set(payload.roleNames) - BUSINESS_ROLES
+    roles = sorted(set(role.upper() for role in payload.roleNames) or {"CUSTOMER"})
+    invalid = set(roles) - BUSINESS_ROLES
     if invalid:
         raise HTTPException(status_code=422, detail=f"Unknown roles: {', '.join(sorted(invalid))}")
-    token = await admin_token()
-    names = payload.fullName.strip().split(" ", 1)
-    representation = {"username": payload.username, "email": payload.email, "enabled": True, "emailVerified": False, "firstName": names[0] if names else "", "lastName": names[1] if len(names) > 1 else "", "attributes": {"phone": [payload.phone], "aimsStatus": ["ACTIVE"]}, "credentials": [{"type": "password", "value": secrets.token_urlsafe(18), "temporary": True}], "requiredActions": ["UPDATE_PASSWORD"]}
-    async with httpx.AsyncClient(timeout=15) as client:
-        created = await client.post(f"{admin_base()}/admin/realms/aims/users", json=representation, headers={"Authorization": f"Bearer {token}"})
-        if created.status_code == 409:
-            raise HTTPException(status_code=400, detail="Username or email already exists")
-        if created.status_code != 201:
-            raise HTTPException(status_code=503, detail="Keycloak could not create the user")
-        user_id = created.headers["location"].rstrip("/").rsplit("/", 1)[-1]
-        roles = [await realm_role(client, token, name) for name in payload.roleNames]
-        if roles:
-            await client.post(f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm", json=roles, headers={"Authorization": f"Bearer {token}"})
-        result = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}", headers={"Authorization": f"Bearer {token}"})
-        return await admin_user_view(client, token, result.json())
+    user_id = uuid.uuid4()
+    temporary_password = secrets.token_urlsafe(18)
+    try:
+        async with await get_connection() as connection:
+            cursor = await connection.execute(
+                """INSERT INTO auth_service.users(user_id,username,email,password_hash,full_name,phone,roles)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (user_id, payload.username.strip(), payload.email.strip().lower(), hash_password(temporary_password), payload.fullName.strip(), payload.phone.strip(), roles),
+            )
+            row = await cursor.fetchone()
+    except UniqueViolation as exc:
+        raise HTTPException(status_code=400, detail="Username or email already exists") from exc
+    result = user_view(row)
+    result["temporaryPassword"] = temporary_password
+    return result
+
+
+async def load_user_for_update(connection: psycopg.AsyncConnection[Any], user_id: str) -> dict[str, Any]:
+    try:
+        parsed_id = uuid.UUID(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="User not found") from exc
+    cursor = await connection.execute("SELECT * FROM auth_service.users WHERE user_id=%s", (parsed_id,))
+    row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return row
 
 
 @app.post("/api/admin/users/{user_id}/roles/")
 async def set_admin_roles(user_id: str, payload: AdminRolesRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    await require_admin(authorization)
-    invalid = set(payload.roleNames) - BUSINESS_ROLES
-    if invalid:
-        raise HTTPException(status_code=422, detail=f"Unknown roles: {', '.join(sorted(invalid))}")
-    token = await admin_token()
-    async with httpx.AsyncClient(timeout=15) as client:
-        current = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm", headers={"Authorization": f"Bearer {token}"})
-        business_current = [role for role in current.json() if role.get("name") in BUSINESS_ROLES]
-        if business_current:
-            await client.request("DELETE", f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm", json=business_current, headers={"Authorization": f"Bearer {token}"})
-        desired = [await realm_role(client, token, name) for name in payload.roleNames]
-        if desired:
-            await client.post(f"{admin_base()}/admin/realms/aims/users/{user_id}/role-mappings/realm", json=desired, headers={"Authorization": f"Bearer {token}"})
-        result = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}", headers={"Authorization": f"Bearer {token}"})
-        if result.status_code != 200:
-            raise HTTPException(status_code=404, detail="User not found")
-        return await admin_user_view(client, token, result.json())
+    actor = await require_admin(authorization)
+    roles = sorted(set(role.upper() for role in payload.roleNames))
+    invalid = set(roles) - BUSINESS_ROLES
+    if invalid or not roles:
+        raise HTTPException(status_code=422, detail="At least one valid role is required")
+    if str(actor["user_id"]) == user_id and "ADMIN" not in roles:
+        raise HTTPException(status_code=400, detail="You cannot remove your own administrator role")
+    async with await get_connection() as connection:
+        await load_user_for_update(connection, user_id)
+        cursor = await connection.execute(
+            "UPDATE auth_service.users SET roles=%s,updated_at=now() WHERE user_id=%s RETURNING *", (roles, uuid.UUID(user_id))
+        )
+        row = await cursor.fetchone()
+    return user_view(row)
 
 
 @app.post("/api/admin/users/{user_id}/status/")
 async def set_admin_status(user_id: str, payload: AdminStatusRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    await require_admin(authorization)
+    actor = await require_admin(authorization)
     status = payload.status.upper()
     if status not in {"ACTIVE", "DEACTIVATED", "BLOCKED"}:
         raise HTTPException(status_code=422, detail="Invalid account status")
-    token = await admin_token()
-    async with httpx.AsyncClient(timeout=15) as client:
-        result = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}", headers={"Authorization": f"Bearer {token}"})
-        if result.status_code != 200:
-            raise HTTPException(status_code=404, detail="User not found")
-        representation = result.json()
-        attributes = representation.get("attributes") or {}
-        attributes["aimsStatus"] = [status]
-        representation.update({"enabled": status == "ACTIVE", "attributes": attributes})
-        updated = await client.put(f"{admin_base()}/admin/realms/aims/users/{user_id}", json=representation, headers={"Authorization": f"Bearer {token}"})
-        if updated.status_code != 204:
-            raise HTTPException(status_code=503, detail="Keycloak could not update the user")
-        representation["attributes"] = attributes
-        return await admin_user_view(client, token, representation)
+    if str(actor["user_id"]) == user_id and status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
+    async with await get_connection() as connection:
+        await load_user_for_update(connection, user_id)
+        cursor = await connection.execute(
+            "UPDATE auth_service.users SET status=%s,updated_at=now() WHERE user_id=%s RETURNING *", (status, uuid.UUID(user_id))
+        )
+        row = await cursor.fetchone()
+        if status != "ACTIVE":
+            await connection.execute("DELETE FROM auth_service.tokens WHERE user_id=%s", (uuid.UUID(user_id),))
+    return user_view(row)
 
 
-@app.post("/api/admin/users/{user_id}/reset-password/", status_code=204)
-async def reset_admin_password(user_id: str, authorization: str | None = Header(default=None)) -> Response:
+@app.post("/api/admin/users/{user_id}/reset-password/")
+async def reset_admin_password(user_id: str, authorization: str | None = Header(default=None)) -> dict[str, str]:
     await require_admin(authorization)
-    token = await admin_token()
-    async with httpx.AsyncClient(timeout=15) as client:
-        result = await client.get(f"{admin_base()}/admin/realms/aims/users/{user_id}", headers={"Authorization": f"Bearer {token}"})
-        if result.status_code != 200:
-            raise HTTPException(status_code=404, detail="User not found")
-        representation = result.json()
-        required = set(representation.get("requiredActions") or [])
-        required.add("UPDATE_PASSWORD")
-        representation["requiredActions"] = sorted(required)
-        updated = await client.put(f"{admin_base()}/admin/realms/aims/users/{user_id}", json=representation, headers={"Authorization": f"Bearer {token}"})
-        if updated.status_code != 204:
-            raise HTTPException(status_code=503, detail="Keycloak could not start password reset")
-    return Response(status_code=204)
+    temporary_password = secrets.token_urlsafe(18)
+    async with await get_connection() as connection:
+        await load_user_for_update(connection, user_id)
+        await connection.execute(
+            "UPDATE auth_service.users SET password_hash=%s,updated_at=now() WHERE user_id=%s",
+            (hash_password(temporary_password), uuid.UUID(user_id)),
+        )
+        await connection.execute("DELETE FROM auth_service.tokens WHERE user_id=%s", (uuid.UUID(user_id),))
+    return {"temporaryPassword": temporary_password}
 
 
 @app.get("/api/admin/roles/")
 async def list_admin_roles(authorization: str | None = Header(default=None)) -> list[dict[str, str]]:
     await require_admin(authorization)
-    token = await admin_token()
-    async with httpx.AsyncClient(timeout=15) as client:
-        roles = [await realm_role(client, token, name) for name in sorted(BUSINESS_ROLES)]
-    return [{"roleId": role["id"], "roleName": role["name"], "description": role.get("description", "")} for role in roles]
+    return [
+        {"roleId": role, "roleName": role, "description": description}
+        for role, description in (
+            ("ADMIN", "Full AIMS administration"),
+            ("CUSTOMER", "Store customer"),
+            ("PRODUCT_MANAGER", "Catalog and inventory management"),
+        )
+    ]

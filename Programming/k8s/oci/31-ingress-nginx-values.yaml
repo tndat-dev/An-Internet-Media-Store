@@ -1,0 +1,33 @@
+controller:
+  replicaCount: 2
+  ingressClassResource:
+    name: nginx
+    enabled: true
+    default: false
+  ingressClass: nginx
+  allowSnippetAnnotations: false
+  service:
+    type: NodePort
+    externalTrafficPolicy: Cluster
+    nodePorts:
+      http: 32080
+      https: 32443
+  config:
+    server-tokens: "false"
+    ssl-redirect: "false"
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - ingress-nginx
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+                - controller
+        topologyKey: kubernetes.io/hostname
+
+defaultBackend:
+  enabled: false

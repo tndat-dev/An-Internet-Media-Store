@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: aims-frontend
-  namespace: production
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: aims-frontend
     app.kubernetes.io/part-of: aims
@@ -12,7 +12,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: aims-frontend
-  namespace: production
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: aims-frontend
     app.kubernetes.io/part-of: aims
@@ -29,7 +29,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: aims-frontend
-  namespace: production
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: aims-frontend
     app.kubernetes.io/part-of: aims
@@ -76,8 +76,10 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+        {{- if .Values.appArmorEnabled }}
         appArmorProfile:
           type: RuntimeDefault
+        {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           minDomains: 2
@@ -162,7 +164,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: aims-frontend
-  namespace: production
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/part-of: aims
 spec:

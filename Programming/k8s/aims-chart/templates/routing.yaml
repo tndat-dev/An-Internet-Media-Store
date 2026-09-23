@@ -1,3 +1,4 @@
+{{- if .Values.routing.enabled }}
 # North-south entry point. GatewayClass "istio" means Istio owns the managed
 # ingress Deployment and Service. This is separate from the "istio-waypoint"
 # GatewayClass used for Ambient east-west L7 processing.
@@ -143,3 +144,4 @@ spec:
     matchLabels:
       app.kubernetes.io/part-of: aims
       app.kubernetes.io/component: backend
+{{- end }}

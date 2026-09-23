@@ -1,50 +1,33 @@
-import asyncio
-import base64
-import json
-
 from fastapi.testclient import TestClient
-import httpx
 
-from app.main import RegisterRequest, admin_base, app, client_id, map_user, token_from_header, userinfo
+from app.main import RegisterRequest, app, hash_password, token_digest, token_from_header, verify_password
 
 
-def test_health():
+def test_health_without_database_is_degraded(monkeypatch):
+    monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     with TestClient(app) as client:
         response = client.get("/healthz")
     assert response.status_code == 200
-    assert response.json()["service"] == "auth-service"
+    assert response.json() == {"status": "degraded", "service": "auth-service", "databaseReady": False}
 
 
-def test_role_mapping_and_legacy_token_header():
-    assert token_from_header("Token abc") == "abc"
-    user = map_user({"sub": "1", "preferred_username": "dat", "realm_access": {"roles": ["product-manager"]}})
-    assert user["roles"] == ["PRODUCT_MANAGER"]
+def test_password_hash_round_trip_and_random_salt():
+    first = hash_password("correct horse battery staple")
+    second = hash_password("correct horse battery staple")
+    assert first != second
+    assert verify_password("correct horse battery staple", first)
+    assert not verify_password("wrong password", first)
+    assert not verify_password("anything", "unsupported")
 
 
-def test_keycloak_contract_defaults():
-    assert client_id() == "aims-app"
-    assert admin_base().endswith("/auth")
-    assert RegisterRequest(username="buyer", email="buyer@example.test", password="secret123").fullName == ""
+def test_token_header_and_digest_contract():
+    assert token_from_header("Token opaque-token") == "opaque-token"
+    assert token_from_header("Bearer opaque-token") == "opaque-token"
+    assert token_digest("opaque-token") == token_digest("opaque-token")
 
 
-def test_userinfo_merges_verified_access_token_roles(monkeypatch):
-    header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
-    payload = base64.urlsafe_b64encode(json.dumps({"sub": "user-1", "realm_access": {"roles": ["ADMIN"]}}).encode()).decode().rstrip("=")
-    token = f"{header}.{payload}.signature"
-
-    class Client:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def get(self, *_args, **_kwargs):
-            return httpx.Response(200, json={"sub": "user-1", "preferred_username": "admin"})
-
-    monkeypatch.setattr("app.main.httpx.AsyncClient", Client)
-    claims = asyncio.run(userinfo(token))
-    assert map_user(claims)["roles"] == ["ADMIN"]
+def test_registration_contract_defaults():
+    payload = RegisterRequest(username="buyer", email="buyer@example.test", password="secret123")
+    assert payload.fullName == ""
+    assert payload.phone == ""

@@ -1,0 +1,41 @@
+workloadKind: Deployment
+
+analysis:
+  enabled: false
+
+routing:
+  enabled: false
+
+# OCI workers do not have the lab-specific localhost seccomp/AppArmor profiles.
+disableLocalhostProfiles: true
+appArmorEnabled: false
+
+frontend:
+  replicas: 2
+
+integrations:
+  kafkaBootstrapOverride: aims-kafka-kafka-bootstrap.kafka.svc.cluster.local:9093
+  kafkaBusinessTopic: aims.business.order.created.v1
+  kafkaSecurityTopic: aims.security.telemetry.v1
+  redisHost: ""
+  redisPort: "26379"
+  rabbitmqHost: ""
+  rabbitmqPort: "5672"
+  keycloakIssuer: ""
+  otlpEndpoint: ""
+
+globalExtraEnv:
+  AUTH_SERVICE_URL: http://auth-service.aims.svc.cluster.local:8000
+  CATALOG_SERVICE_URL: http://catalog-service.aims.svc.cluster.local:8000
+  CART_SERVICE_URL: http://cart-service.aims.svc.cluster.local:8000
+  ORDER_SERVICE_URL: http://order-service.aims.svc.cluster.local:8000
+  PAYMENT_SERVICE_URL: http://payment-service.aims.svc.cluster.local:8000
+  INVENTORY_SERVICE_URL: http://inventory-service.aims.svc.cluster.local:8000
+  NOTIFICATION_SERVICE_URL: http://notification-service.aims.svc.cluster.local:8000
+  SEARCH_RECOMMENDATION_SERVICE_URL: http://search-recommendation-service.aims.svc.cluster.local:8000
+  SECURITY_TELEMETRY_SERVICE_URL: http://security-telemetry-service.aims.svc.cluster.local:8000
+
+# Keep two replicas for application HA, but do not scale automatically until
+# metrics-server and the baseline load test are verified on OKE.
+autoscaling:
+  enabled: false
