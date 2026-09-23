@@ -48,8 +48,16 @@ Không ghi password, API private key, Kafka private key hoặc kubeconfig vào G
 6. Sau khi đổi password thành công, xóa file chứa one-time password khỏi máy và
    Recycle Bin.
 
-MFA hiện không được bật cho user này. Không chia sẻ password hoặc API key qua
-chat, email hay commit Git.
+MFA hiện không được bật cho user này. Sign-on policy có rule
+`Password only for chulinh`, vì vậy `chulinh` không phải đăng ký Secure
+Verification khi vào OCI Console. Rule MFA dành cho administrator vẫn có độ ưu
+tiên cao hơn; nếu sau này cấp quyền administrator cho `chulinh`, MFA sẽ lại được
+yêu cầu.
+
+Nếu trình duyệt đang mở trang **Enable Secure Verification** từ trước khi rule
+được tạo, sign out, đóng tab, đợi vài phút rồi đăng nhập lại bằng cửa sổ
+InPrivate/Incognito. Không chia sẻ password hoặc API key qua chat, email hay
+commit Git.
 
 ## 3. Cài công cụ trên Windows
 
