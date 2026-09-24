@@ -1,7 +1,4 @@
-# Runbook cho `chulinh` — OCI CLI, VS Code, Data Science và shared OKE
-
-Tài liệu này dành cho người chưa từng dùng OCI. Thực hiện theo thứ tự từ trên
-xuống. Môi trường hiện dùng region `ap-tokyo-1`, tenancy `svtechcloud`,
+Môi trường hiện dùng region `ap-tokyo-1`, tenancy `svtechcloud`,
 identity domain `Default` và user `chulinh`.
 
 `chulinh` có hai nơi làm việc:
@@ -36,36 +33,27 @@ compute tính phí. Runbook này không tạo các runtime đó.
 | Kubernetes namespace | `data-science` |
 | Kafka bootstrap | `aims-kafka-kafka-bootstrap.kafka.svc.cluster.local:9093` |
 
-Không ghi password, API private key, Kafka private key hoặc kubeconfig vào Git.
 
-## 2. Đăng nhập OCI lần đầu
+## 2. Đăng nhập OCI
 
 1. Mở `https://cloud.oracle.com/?tenant=svtechcloud`.
 2. Chọn identity domain **Default**.
 3. Username là `chulinh`.
-4. Dùng one-time password do quản trị viên cung cấp.
-5. Đổi password ngay khi OCI yêu cầu.
-6. Sau khi đổi password thành công, xóa file chứa one-time password khỏi máy và
-   Recycle Bin.
+4. Dùng password đã được cấp và đổi password nếu OCI yêu cầu.
+5. Tại màn hình **Enable Secure Verification**, chọn bật xác minh an toàn.
+6. Đăng ký Oracle Mobile Authenticator hoặc ứng dụng TOTP tương thích, quét QR
+   code và nhập mã xác nhận đang hiển thị trên điện thoại.
+7. Nếu OCI cung cấp bypass/recovery code, lưu trong password manager; không lưu
+   trong repository hoặc gửi qua chat.
+8. Đăng xuất rồi đăng nhập lại một lần để chắc MFA hoạt động.
 
-MFA hiện không được bật cho user này. Sign-on policy có rule
-`Password only for chulinh`, vì vậy `chulinh` không phải đăng ký Secure
-Verification khi vào OCI Console. Rule MFA dành cho administrator vẫn có độ ưu
-tiên cao hơn; nếu sau này cấp quyền administrator cho `chulinh`, MFA sẽ lại được
-yêu cầu.
-
-Nếu trình duyệt đang mở trang **Enable Secure Verification** từ trước khi rule
-được tạo, sign out, đóng tab, đợi vài phút rồi đăng nhập lại bằng cửa sổ
-InPrivate/Incognito. Không chia sẻ password hoặc API key qua chat, email hay
-commit Git.
+Identity Domain `Default` bắt buộc MFA cho mọi user truy cập OCI Console. Nếu
+trình duyệt còn hiển thị **Sign-on policy denies access** từ session cũ, đóng
+toàn bộ tab OCI, đợi vài phút rồi đăng nhập lại trong cửa sổ
+InPrivate/Incognito. Không chia sẻ password, mã TOTP, QR enrollment, recovery
+code hoặc API key.
 
 ## 3. Cài công cụ trên Windows
-
-Nên dùng **PowerShell** thay cho Command Prompt cổ điển. Tất cả command Windows
-trong tài liệu được viết cho PowerShell và chạy được trong terminal của VS Code.
-Nếu đang ở cửa sổ **Command Prompt**, gõ `powershell` rồi nhấn Enter trước khi
-copy lệnh. Dấu backtick ở cuối dòng trong tài liệu là ký tự nối dòng của
-PowerShell và không chạy trực tiếp trong Command Prompt.
 
 ### 3.1 Cài VS Code, Git và kubectl
 
@@ -499,8 +487,7 @@ Kiểm tra quota, CPU/memory request, PVC và image trước khi yêu cầu scal
 oci bastion session delete --session-id $SessionId --force
 ```
 
-4. Không xóa Project, PVC, Kafka topic hoặc model nếu chưa kiểm tra dữ liệu cần
-   giữ.
+4. Không xóa Project, PVC, Kafka topic hoặc model nếu chưa kiểm tra dữ liệu cần giữ.
 
 ## 15. Tài liệu chính thức
 

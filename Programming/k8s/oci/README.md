@@ -30,7 +30,7 @@ trực tiếp, không cần Keycloak; catalog và inventory đã có 12 sản ph
 Data Science dùng chung cụm trong namespace `data-science`; Kafka user/topic
 được tách khỏi AIMS bằng certificate và ACL riêng.
 
-Hướng dẫn cho user mới: [CHULINH_DATA_SCIENCE_RUNBOOK.md](../../../docs/oci/CHULINH_DATA_SCIENCE_RUNBOOK.md).
+Hướng dẫn cho user mới: [36_RUNBOOK.md](../../../docs/oci/36_RUNBOOK.md).
 Endpoint lab hiện tại:
 
 ```text
