@@ -1,0 +1,25 @@
+tenancy_ocid                 = "ocid1.tenancy.oc1..REPLACE_ME"
+landing_zone_compartment_id  = "ocid1.compartment.oc1..REPLACE_ME"
+region                       = "ap-tokyo-1"
+oci_profile                  = "DEFAULT"
+
+oe_code                      = "oe01"
+name_suffix                  = ""
+deployment_acknowledgement   = "CREATE-OE01"
+vcn_cidr                     = "10.1.0.0/16"
+hub_vcn_cidr                 = "10.0.0.0/16"
+
+drg_id                       = "ocid1.drg.oc1.ap-tokyo-1.REPLACE_ME"
+drg_route_table_id           = "ocid1.drgroutetable.oc1.ap-tokyo-1.REPLACE_WITH_FROM_SPOKE"
+hub_drg_route_table_id       = "ocid1.drgroutetable.oc1.ap-tokyo-1.REPLACE_WITH_FROM_HUB"
+
+create_iam_group             = true
+create_cloud_guard_target    = false
+create_security_zone         = true
+security_zone_recipe_id      = null
+
+freeform_tags = {
+  ManagedBy = "Terraform"
+  Project   = "AIMS"
+  Owner     = "CloudOps"
+}

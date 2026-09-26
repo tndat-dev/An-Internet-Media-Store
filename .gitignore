@@ -2,6 +2,21 @@ Programming/frontend/.next/
 Programming/frontend/next-env.d.ts
 Programming/frontend/tsconfig.tsbuildinfo
 
+# Terraform working data, plans, state and environment values
+**/.terraform/*
+**/.terraform-*/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+*.backend.hcl
+!*.backend.hcl.example
+infra/terraform/**/state/
+infra/terraform/**/plans/
+
 # Local/reference documents
 *.md
 !docs/oci/OCI_AIMS_GENERIC_V1_NOTES.md
