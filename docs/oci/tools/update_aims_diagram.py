@@ -79,7 +79,7 @@ class Page:
         self.text(subtitle, 35, 68, 1720, 32, size=11, color=COLORS["muted"], align="left")
         self.box(
             "TARGET-STATE SNAPSHOT • Sơ đồ giữ Network Firewall theo kiến trúc trước khi xóa. "
-            "Compute instance có thể đang STOPPED; trạng thái runtime không làm thay đổi thiết kế.",
+            "Compute/node pool có thể đang dừng hoặc đã gỡ; trạng thái runtime không làm thay đổi thiết kế đích.",
             35,
             102,
             1720,
@@ -491,6 +491,16 @@ def _add_oracle_note(diagram: ET.Element, note: str, page_height: int, note_y: i
     root = model.find("root")
     if root is None:
         raise RuntimeError("Oracle diagram has no root")
+    # Oracle pages use page-specific root/layer IDs instead of the generic
+    # mxCell IDs "0" and "1". Attach notes to the real default layer so they
+    # remain part of the page model and move/export with the source content.
+    root_cell = next((cell for cell in root.findall("mxCell") if cell.get("parent") is None), None)
+    if root_cell is None:
+        raise RuntimeError("Oracle diagram has no root cell")
+    layer = next((cell for cell in root.findall("mxCell") if cell.get("parent") == root_cell.get("id")), None)
+    if layer is None:
+        raise RuntimeError("Oracle diagram has no default layer")
+
     cell = ET.SubElement(
         root,
         "mxCell",
@@ -503,7 +513,7 @@ def _add_oracle_note(diagram: ET.Element, note: str, page_height: int, note_y: i
                 "spacing=8;strokeWidth=2;"
             ),
             "vertex": "1",
-            "parent": "1",
+            "parent": layer.get("id"),
         },
     )
     ET.SubElement(
@@ -513,6 +523,33 @@ def _add_oracle_note(diagram: ET.Element, note: str, page_height: int, note_y: i
     )
 
 
+def _shift_oracle_canvas(diagram: ET.Element, dx: float, dy: float) -> None:
+    """Move every top-level object/edge point from a multi-page Oracle canvas."""
+    model = diagram.find("mxGraphModel")
+    root = model.find("root") if model is not None else None
+    if root is None:
+        raise RuntimeError("Oracle diagram has no graph root")
+    cells = root.findall("mxCell")
+    root_ids = {cell.get("id") for cell in cells if cell.get("parent") is None}
+    layer_ids = {cell.get("id") for cell in cells if cell.get("parent") in root_ids}
+
+    for cell in cells:
+        if cell.get("parent") not in layer_ids:
+            continue
+        geometry = cell.find("mxGeometry")
+        if geometry is None:
+            continue
+        if cell.get("vertex") == "1":
+            geometry.set("x", str(float(geometry.get("x", "0")) + dx))
+            geometry.set("y", str(float(geometry.get("y", "0")) + dy))
+        elif cell.get("edge") == "1":
+            # Free endpoints and waypoints are absolute page coordinates.
+            # Relative edge-label coordinates on mxGeometry must stay intact.
+            for point in geometry.iter("mxPoint"):
+                if point.get("x") is not None:
+                    point.set("x", str(float(point.get("x")) + dx))
+                if point.get("y") is not None:
+                    point.set("y", str(float(point.get("y")) + dy))
 def _plain(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", value)).strip()
 
@@ -527,6 +564,9 @@ def clone_oracle_page(
     *,
     replace_oe_firewalls: bool = False,
     note_y: int = 130,
+    shift_x: int = 0,
+    shift_y: int = 0,
+    cell_overrides: dict[str, str] | None = None,
 ) -> ET.Element:
     source = next(d for d in source_root.findall("diagram") if d.get("name") == source_name)
     diagram = copy.deepcopy(source)
@@ -557,6 +597,9 @@ def clone_oracle_page(
         ("ng_nrt_hub", "hub-natgw"),
         ("vcn-nrt-hub", "hub-vcn"),
         ("vcn -nrt-hub", "hub-vcn"),
+        # These forms only appear after the region/VCN substitutions above.
+        ("drgatt-nrt-hub-hub-vcn", "att-hub"),
+        ("drgatt-nrt-hub-vcn", "att-hub"),
     ]
     for cell in diagram.findall(".//mxCell"):
         value = cell.get("value")
@@ -592,20 +635,382 @@ def clone_oracle_page(
             else:
                 cell.set("value", "Hub B FW: aims-hub-b-fw · 10.0.3.23")
 
+    for cell_id, value in (cell_overrides or {}).items():
+        cell = diagram.find(f".//mxCell[@id='{cell_id}']")
+        if cell is None:
+            raise RuntimeError(f"Oracle reference is missing expected cell: {cell_id}")
+        cell.set("value", value)
+
+    if shift_x or shift_y:
+        _shift_oracle_canvas(diagram, shift_x, shift_y)
+
     _add_oracle_note(
         diagram,
         "AIMS TARGET-STATE • ap-tokyo-1 • Hub B dùng 01 OCI Network Firewall. "
-        "OE01/AIMS là hiện thực; OE02/Data Science là spoke đã Terraform-validate. "
-        "Compute có thể STOPPED nhưng sơ đồ giữ nguyên kiến trúc đầy đủ trước khi firewall bị xóa.",
+        "OE01/AIMS đã triển khai; OE02 có compartment foundation, VCN/compute vẫn là dự kiến. "
+        "Firewall đã xóa; runtime hiện đi direct NAT. Sơ đồ giữ kiến trúc đầy đủ trước khi xóa firewall.",
         page_height,
         note_y,
     )
     return diagram
 
 
+def _remove_cell_tree(root: ET.Element, cell_id: str) -> None:
+    """Remove one mxCell and all nested cells, plus edges attached to them."""
+    cells = root.findall("mxCell")
+    descendants = {cell_id}
+    changed = True
+    while changed:
+        changed = False
+        for cell in cells:
+            if cell.get("parent") in descendants and cell.get("id") not in descendants:
+                descendants.add(cell.get("id"))
+                changed = True
+    for cell in cells:
+        if cell.get("edge") == "1" and (
+            cell.get("source") in descendants or cell.get("target") in descendants
+        ):
+            descendants.add(cell.get("id"))
+    for cell in list(root.findall("mxCell")):
+        if cell.get("id") in descendants:
+            root.remove(cell)
+
+
+def _set_route_table(
+    root: ET.Element,
+    table_id: str,
+    title: str,
+    routes: list[tuple[str, str]],
+    *,
+    width: float | None = None,
+    x: float | None = None,
+    y: float | None = None,
+    note: str | None = None,
+) -> None:
+    """Replace a cloned Oracle table's sample rows with captured OCI state."""
+    table = root.find(f"mxCell[@id='{table_id}']")
+    if table is None:
+        raise RuntimeError(f"Routing page is missing expected table {table_id}")
+    geometry = table.find("mxGeometry")
+    if geometry is None:
+        raise RuntimeError(f"Routing table {table_id} has no geometry")
+    if width is not None:
+        geometry.set("width", str(width))
+    if x is not None:
+        geometry.set("x", str(x))
+    if y is not None:
+        geometry.set("y", str(y))
+    table.set("value", title)
+
+    # Retain OCI's native table layout and palette. Replace its body rows with
+    # captured rules while keeping the same two-column Destination/Next-hop form.
+    existing = root.findall("mxCell")
+    row_template = None
+    for cell in existing:
+        if cell.get("parent") != table_id or "shape=tableRow" not in cell.get("style", ""):
+            continue
+        children = [item for item in existing if item.get("parent") == cell.get("id")]
+        labels = [_plain(item.get("value", "")) for item in children]
+        if len(children) == 2 and labels != ["Destination", "Next-hop"]:
+            row_template = cell
+            break
+    if row_template is None:
+        # The DRG hub distribution card has a three-column sample body. Reuse
+        # a two-column DRG row, preserving the Oracle-blue appearance.
+        row_template = next(
+            cell for cell in existing
+            if cell.get("parent") == "uQWPh24YtvhKBnw1L0BU-112"
+            and "shape=tableRow" in cell.get("style", "")
+            and sum(item.get("parent") == cell.get("id") for item in existing) == 2
+        )
+    template_cells = [item for item in existing if item.get("parent") == row_template.get("id")]
+    template_geometry = row_template.find("mxGeometry")
+    template_cell_geometries = [item.find("mxGeometry") for item in template_cells]
+    col_widths = [float(g.get("width", "0")) for g in template_cell_geometries]
+    template_width = sum(col_widths) or float(geometry.get("width"))
+    new_width = float(width if width is not None else geometry.get("width"))
+    col_widths = [new_width * col / template_width for col in col_widths]
+    row_height = 30
+
+    # Preserve the source table's two-column heading if present; otherwise the
+    # source DRG route-distribution card is reduced to the same compact OCI form.
+    header_row = None
+    for cell in existing:
+        if cell.get("parent") != table_id or "shape=tableRow" not in cell.get("style", ""):
+            continue
+        labels = [_plain(item.get("value", "")) for item in existing if item.get("parent") == cell.get("id")]
+        if labels == ["Destination", "Next-hop"]:
+            header_row = cell
+            break
+    for cell in list(root.findall("mxCell")):
+        if cell.get("parent") == table_id:
+            _remove_cell_tree(root, cell.get("id"))
+    rows = [("Destination", "Next-hop"), *(routes or [("(no rules)", "—")])]
+    parent_style = table.get("style", "")
+    stroke = re.search(r"strokeColor=([^;]+)", parent_style)
+    fill = re.search(r"fillColor=([^;]+)", parent_style)
+    stroke_color = stroke.group(1) if stroke else "#9673a6"
+    fill_color = fill.group(1) if fill else "#ffffff"
+    row_style = row_template.get("style", "")
+    for index, values in enumerate(rows):
+        row_id = f"{table_id}-actual-row-{index}-container"
+        row = ET.Element("mxCell", {
+            "id": row_id, "value": "", "style": row_style,
+            "vertex": "1", "parent": table_id,
+        })
+        ET.SubElement(row, "mxGeometry", {
+            "height": str(row_height), "width": str(new_width),
+            "y": str(30 + index * row_height), "as": "geometry",
+        })
+        root.append(row)
+        for column, value in enumerate(values):
+            cell_id = f"{table_id}-actual-row-{index}-{column}"
+            style_template = template_cells[column]
+            style = style_template.get("style", "")
+            style = re.sub(r"strokeColor=[^;]+", f"strokeColor={stroke_color}", style)
+            style = re.sub(r"fillColor=[^;]+", f"fillColor={fill_color}", style)
+            cell = ET.Element("mxCell", {
+                "id": cell_id, "value": value, "style": style,
+                "vertex": "1", "parent": row_id,
+            })
+            cell_width = col_widths[column]
+            cell_geometry = ET.SubElement(cell, "mxGeometry", {
+                "height": str(row_height), "width": str(cell_width), "as": "geometry",
+            })
+            ET.SubElement(cell_geometry, "mxRectangle", {
+                "height": str(row_height), "width": str(cell_width), "as": "alternateBounds",
+            })
+            if column:
+                cell_geometry.set("x", str(col_widths[0]))
+            root.append(cell)
+    geometry.set("width", str(new_width))
+    geometry.set("height", str(30 + len(rows) * row_height))
+
+    if note:
+        table.set("value", title + "<br><font style=\"font-size:9px;font-weight:normal\">" + note + "</font>")
+
+
+def _clone_route_table(root: ET.Element, template_id: str, new_id: str, title: str, x: int, y: int) -> str:
+    """Clone an Oracle-styled route table in place for the captured Hub default table."""
+    original = root.find(f"mxCell[@id='{template_id}']")
+    if original is None:
+        raise RuntimeError(f"Routing page is missing table template {template_id}")
+    cells = root.findall("mxCell")
+    descendants = {template_id}
+    changed = True
+    while changed:
+        changed = False
+        for cell in cells:
+            if cell.get("parent") in descendants and cell.get("id") not in descendants:
+                descendants.add(cell.get("id"))
+                changed = True
+    id_map = {old_id: old_id.replace(template_id, new_id, 1) for old_id in descendants}
+    copies = [copy.deepcopy(cell) for cell in cells if cell.get("id") in descendants]
+    for cell in copies:
+        old_id = cell.get("id")
+        cell.set("id", id_map[old_id])
+        if cell.get("parent") in id_map:
+            cell.set("parent", id_map[cell.get("parent")])
+        if old_id == template_id:
+            cell.set("value", title)
+            geometry = cell.find("mxGeometry")
+            if geometry is not None:
+                geometry.set("x", str(x))
+                geometry.set("y", str(y))
+    root.extend(copies)
+    return new_id
+
+
+def tailor_actual_routing(diagram: ET.Element) -> None:
+    """Make the routing page an evidence-based snapshot, not blueprint sample data."""
+    model = diagram.find("mxGraphModel")
+    root = model.find("root") if model is not None else None
+    if root is None:
+        raise RuntimeError("Routing page has no graph root")
+    # OE01 spoke routes, exactly as shown in the Console capture.
+    _set_route_table(
+        root,
+        "uQWPh24YtvhKBnw1L0BU-89",
+        "VCN RT: rt-spoke · oe01-vcn",
+        [
+            ("0.0.0.0/0", "oe01-natgw"),
+            ("10.0.0.0/16", "lz-drg"),
+            ("All NRT Services (OSN)", "oe01-sgw"),
+        ],
+        width=149,
+    )
+
+    # DRG custom route tables and Hub VCN route tables, from saved Console evidence.
+    _set_route_table(
+        root,
+        "uQWPh24YtvhKBnw1L0BU-103",
+        "DRG RT: drg-rt-from-hub",
+        [("10.1.0.0/16", "att-oe01")],
+        width=420,
+    )
+    _set_route_table(
+        root,
+        "uQWPh24YtvhKBnw1L0BU-112",
+        "DRG RT: drg-rt-from-spoke",
+        [("0.0.0.0/0", "att-hub")],
+        width=200,
+    )
+    _set_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-18",
+        "VCN RT: rt-hub-publiclb",
+        [("0.0.0.0/0", "hub-igw"), ("10.1.0.0/16", "lz-drg")],
+        width=159,
+    )
+    _set_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-53",
+        "VCN RT: rt-hub-fw",
+        [("0.0.0.0/0", "hub-natgw"), ("10.1.0.0/16", "lz-drg")],
+        width=159,
+    )
+    _set_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-78",
+        "VCN RT: rt-hub-nat-return",
+        [],
+        width=159,
+    )
+    _set_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-106",
+        "VCN RT: rt-hub-from-drg",
+        [],
+        width=159,
+    )
+    _set_route_table(
+        root,
+        "m0dTw8g3YEuPuat84XDq-0",
+        "VCN RT: rt-hub-private",
+        [("1 rule (details unavailable)", "not captured")],
+        width=159,
+    )
+    default_id = _clone_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-78",
+        "aims-hub-default-route-table",
+        "VCN RT: Hub default",
+        -170,
+        990,
+    )
+    _set_route_table(root, default_id, "VCN RT: Hub default", [], width=159)
+
+    # Keep Oracle's OE route-table positions for comparison, clearly marked as
+    # not deployed and stripped of the blueprint's example rules.
+    for table_id, label in (
+        ("c8CmYqAibAgsUrgBURHM-23", "oe01-common"),
+        ("uQWPh24YtvhKBnw1L0BU-47", "oe01-nonprod"),
+        ("uQWPh24YtvhKBnw1L0BU-24", "oe01-prod"),
+    ):
+        _set_route_table(root, table_id, f"VCN RT: {label} · NOT DEPLOYED", [], width=149)
+    default_id = _clone_route_table(
+        root,
+        "uv3BpXo39baeigOi-J8k-78",
+        "aims-hub-default-route-table",
+        "VCN RT: Default Route Table for hub-vcn",
+        -170,
+        990,
+    )
+    _set_route_table(root, default_id, "VCN RT: Default Route Table for hub-vcn", [], width=159)
+
+    # Preserve the Oracle OE rows as future-state context, but remove their
+    # sample routes so they cannot be mistaken for deployed tables.
+    for table_id, label in (
+        ("c8CmYqAibAgsUrgBURHM-23", "oe01-common"),
+        ("uQWPh24YtvhKBnw1L0BU-47", "oe01-nonprod"),
+        ("uQWPh24YtvhKBnw1L0BU-24", "oe01-prod"),
+    ):
+        _set_route_table(root, table_id, f"VCN RT: {label} · NOT DEPLOYED", [], width=149)
+
+    # Oracle's sample page placed CIDR placeholders in not-yet-built OE blocks.
+    # State that status plainly rather than leaving an unexplained TBD token.
+    for cell in root.findall("mxCell"):
+        value = cell.get("value", "")
+        if "TBD-" in value:
+            value = re.sub(r"TBD-[A-Z0-9_-]+", "FUTURE · NOT DEPLOYED", value)
+            cell.set("value", value)
+
+    # Replace blueprint route labels that survive outside route-table cards.
+    for cell in root.findall("mxCell"):
+        value = cell.get("value", "")
+        if _plain(value).startswith("Hub B FW:"):
+            cell.set("value", "Hub B FW · removed after capture")
+
+    note = root.find(f"mxCell[@id='{diagram.get('id')}-aims-note']")
+    if note is not None:
+        note.set(
+            "value",
+            "Captured AIMS lab routes · ap-tokyo-1 · 27 Sep 2026 · before cleanup · Firewall removed; "
+            "OE01 egress uses local NAT. Other OE route tables are not deployed.",
+        )
+        note.set(
+            "style",
+            "text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;verticalAlign=middle;"
+            "align=center;fontSize=10;fontColor=#5F5F5F;",
+        )
+        geometry = note.find("mxGeometry")
+        if geometry is not None:
+            geometry.set("x", "250")
+            geometry.set("y", "1290")
+            geometry.set("width", "1150")
+            geometry.set("height", "30")
+        note.set(
+            "style",
+            "text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;verticalAlign=middle;"
+            "align=center;fontSize=10;fontColor=#5F5F5F;",
+        )
+        geometry = note.find("mxGeometry")
+        if geometry is not None:
+            geometry.set("x", "300")
+            geometry.set("y", "48")
+            geometry.set("width", "900")
+            geometry.set("height", "28")
+
+
+def _add_security_status_panel(diagram: ET.Element) -> None:
+    model = diagram.find("mxGraphModel")
+    root = model.find("root") if model is not None else None
+    if root is None:
+        raise RuntimeError("Security posture page has no graph root")
+    root_cell = next(cell for cell in root.findall("mxCell") if cell.get("parent") is None)
+    layer = next(cell for cell in root.findall("mxCell") if cell.get("parent") == root_cell.get("id"))
+    cell = ET.SubElement(
+        root,
+        "mxCell",
+        {
+            "id": "aims-security-runtime-status",
+            "value": (
+                "<b>SECURITY CONTROL STATUS • 27/09/2026</b><br><br>"
+                "<b>ACTIVE</b><br>Cloud Guard tenancy target<br>"
+                "WAF: aims-waf-detect + aims-public-waf<br>"
+                "Security Zones: sz-oe01-private + sz-oe02-sensitive-data<br>"
+                "VCN Flow Logs: hub-vcn + oe01-vcn<br><br>"
+                "<b>TARGET / REMOVED</b><br>aims-hub-b-fw (10.0.3.23)<br>"
+                "Runtime OE01 egress: local NAT"
+            ),
+            "style": (
+                "rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF3F8;strokeColor=#10739E;"
+                "fontColor=#312D2A;fontSize=12;align=left;verticalAlign=top;spacing=12;strokeWidth=2;"
+            ),
+            "vertex": "1",
+            "parent": layer.get("id"),
+        },
+    )
+    ET.SubElement(
+        cell,
+        "mxGeometry",
+        {"x": "1290", "y": "235", "width": "300", "height": "550", "as": "geometry"},
+    )
+
+
 def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
     routing_replacements = [
-        ("OCI OPEN LZ - OPERATIONS VIEW - OP.02 MANAGE OPERATING ENTITY - DETAILED VIEW - ROUTING", "AIMS — OE01 ROUTING WITH HUB B FIREWALL"),
+        ("OCI OPEN LZ - OPERATIONS VIEW - OP.02 MANAGE OPERATING ENTITY - DETAILED VIEW - ROUTING", "OCI OPEN LZ - OPERATIONS VIEW - OP.02 MANAGE OPERATING ENTITY - DETAILED VIEW - ROUTING"),
         ("vcn -nrt-hub 10.0.0.0/18 192.168.0.0/18", "hub-vcn · Hub B · 10.0.0.0/16"),
         ("vcn -nrt-oe01-dev 172.168.2.0/23", "oe01-vcn · DEVELOPMENT 10.1.0.0/16"),
         ("sn-nrt-oe01-dev-apps 172.168.3.0/25", "sn-oke-pods 10.1.16.0/20"),
@@ -621,7 +1026,19 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("sn-nrt-hub-mgmt", "hub-mgmt-sn"),
         ("sn-nrt-hub-logs", "hub-monitoring-sn"),
         ("sn-nrt-hub-dns", "hub-dns-sn"),
+        ("sn-nrt-hub-lb 192.168.0.0/24", "hub-publiclb-sn 10.0.2.0/24"),
         ("sn-nrt-hub-lb", "hub-publiclb-sn"),
+        ("VCN RT: rt-01-oe01-dev-vcn", "VCN RT: rt-spoke (OE01 development)"),
+        ("DRG RT: drg-rt-hub", "DRG RT: drg-rt-from-hub"),
+        ("DRG RT: drg-rt-spokes", "DRG RT: drg-rt-from-spoke"),
+        ("drgatt-nrt-hub-hub-vcn", "att-hub"),
+        ("drgatt-nrt-hub-vcn-nrt-oe01-dev", "att-oe01"),
+        ("VCN RT: rt-01-hub-vcn-lb", "VCN RT: rt-hub-publiclb"),
+        ("VCN RT: rt-02-hub-vcn-nfwns", "VCN RT: rt-hub-fw"),
+        ("VCN RT: rt-04-hub-vcn-natgw", "VCN RT: rt-hub-nat-return"),
+        ("VCN RT: rt-00-hub-vcn-ingress", "VCN RT: rt-hub-from-drg"),
+        ("VCN RT: rt-03-hub-vcn-nfwew", "VCN RT: rt-hub-fw (east-west)"),
+        ("10.0.0.0/24", "10.0.2.0/24"),
         ("sn-nrt-hub-fw-ew 172.168.0.0/25", "hub-fw-sn · EW 10.0.3.0/24"),
         ("sn-nrt-oe01-p-db 172.168.5.128/25", "sn-nrt-oe01-p-db TBD-PROD-DB"),
         ("sn-nrt-oe01-co-mgmt 1 72.168.0.128/25", "sn-nrt-oe01-co-mgmt TBD-CO-MGMT"),
@@ -660,6 +1077,26 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("sn-nrt-oe01-p-infra", "sn-oke-workers 10.1.1.0/24"),
         ("sn-nrt-oe01-p-apps", "sn-oke-pods 10.1.16.0/20"),
         ("sn-nrt-oe01-p-db", "sn-oke-api 10.1.0.0/28"),
+        ("sn-nrt-oe01-np-apps", "sn-oe02-ds-apps"),
+        ("sn-nrt-oe01-np-infra", "sn-oe02-ds-infra"),
+        ("sn-nrt-oe01-np-lb", "sn-oe02-ds-endpoint"),
+        ("sn-nrt-oe01-np-db", "sn-oe02-ds-reserved"),
+        ("lb-oe01-np-01", "lb-oe02-ds-01"),
+        ("lb-oe01-np", "lb-oe02-ds"),
+        ("oe01-np", "oe02-ds"),
+        ("oe01-p", "oe01-development"),
+        ("drg_nrt_hub_vcn_nrt_oe01_np", "att-oe02 [TARGET]"),
+        ("drg_nrt_hub_vcn_nrt_oe01_p", "att-oe01"),
+        ("drg_nrt_hub_vcn_nrt_hub", "att-hub"),
+        ("DRG RT: drg_rt_spokes", "DRG RT: drg-rt-from-spoke"),
+        ("DRG RT: drg_rt_hub", "DRG RT: drg-rt-from-hub"),
+        ("VCN RT: rt-01-oe01-p-vcn", "VCN RT: rt-spoke (OE01 development)"),
+        ("VCN RT: rt-01-oe01-np-vcn", "VCN RT: rt-spoke (OE02 target)"),
+        ("VCN RT: rt-01-hub-vcn-lb", "VCN RT: rt-hub-publiclb"),
+        ("VCN RT: rt-02-hub-vcn-nfwns", "VCN RT: rt-hub-fw"),
+        ("VCN RT: rt-04-hub-vcn-natgw", "VCN RT: rt-hub-nat-return"),
+        ("VCN RT: rt-00-hub-vcn-ingress", "VCN RT: rt-hub-from-drg"),
+        ("VCN RT: rt-03-hub-vcn-nfwew", "VCN RT: rt-hub-fw (east-west)"),
         ("testapp1", "AIMS frontend"),
         ("testapp2", "AIMS API"),
         ("testapp3", "Data Science → Kafka"),
@@ -680,7 +1117,12 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("172.168.5.0/25", "10.2.16.0/20"),
         ("sn-nrt-hub-fw-ns", "hub-fw-sn · NS"),
         ("sn-nrt-hub-fw-ew", "hub-fw-sn · EW"),
+        ("sn-nrt-hub-mgmt", "hub-mgmt-sn"),
+        ("sn-nrt-hub-logs", "hub-monitoring-sn"),
+        ("sn-nrt-hub-dns", "hub-dns-sn"),
+        ("sn-nrt-hub-lb 192.168.0.0/24", "hub-publiclb-sn 10.0.2.0/24"),
         ("sn-nrt-hub-lb", "hub-publiclb-sn"),
+        ("10.0.0.0/24", "10.0.2.0/24"),
     ]
     intra_replacements = [
         ("OCI OPEN LZ - NETWORK VIEW - NETWORK CONNECTIVITY - EAST-WEST INTRA-OE", "AIMS — EAST-WEST INTRA-OE"),
@@ -689,6 +1131,8 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("vcn-nrt-oe01-p", "oe01-vcn · DEVELOPMENT · 10.1.0.0/16"),
         ("vcn-nrt-oe01-np", "OE01 NONPROD [FUTURE]"),
         ("vcn-nrt-oe01-dev", "OE01 ADDITIONAL DEV VCN [FUTURE]"),
+        ("sn-nrt-oe01-fw-ew", "sn-oe01-common-services [FUTURE]"),
+        ("nsg-nrt-oe01-fw-ew", "nsg-oe01-common [FUTURE]"),
         ("sn-nrt-oe01-p-lb", "sn-oke-lb · Private LB / Traefik"),
         ("sn-nrt-oe01-p-app", "OKE namespaces · Pods 10.1.16.0/20"),
         ("Proj1 WL Endpoint", "AIMS microservices"),
@@ -711,6 +1155,10 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("vcn-nrt-oe02-p", "oe02-vcn · DATA SCIENCE · 10.2.0.0/16"),
         ("vcn-nrt-oe02-np", "OE02 NONPROD [FUTURE]"),
         ("vcn-nrt-oe02-dev", "OE02 DEV-2 [FUTURE]"),
+        ("sn-nrt-oe01-fw-ew", "sn-oe01-common-services [FUTURE]"),
+        ("nsg-nrt-oe01-fw-ew", "nsg-oe01-common [FUTURE]"),
+        ("sn-nrt-oe02-fw-ew", "sn-oe02-common-services [FUTURE]"),
+        ("nsg-nrt-oe02-fw-ew", "nsg-oe02-common [FUTURE]"),
         ("Proj1 WL Endpoint", "Kafka TLS/9093 endpoint"),
         ("Proj2 WL Endpoint", "OCI Data Science notebook/job"),
         ("Proj3", "Data Science"),
@@ -735,13 +1183,118 @@ def oracle_tailored_pages(source_root: ET.Element) -> list[ET.Element]:
         ("vcn-nrt-oe01-sb", "OE01 SANDBOX [FUTURE]"),
         ("Central firewall/inspection", "Central Hub B firewall/inspection"),
     ]
-    return [
-        clone_oracle_page(source_root, "OPS - OE01 Routing", "05 — NET · Routing (Oracle tailored)", "aims-routing", 1320, routing_replacements, note_y=-145),
-        clone_oracle_page(source_root, "OPS - Test Network Flows", "06 — OPS · Test Network Flows (Oracle tailored)", "aims-test-network-flows", 1380, flows_replacements, note_y=-145),
+    pages = [
+        clone_oracle_page(
+            source_root, "OPS - OE01 Routing", "05 — NET · Routing (Oracle tailored)",
+            "aims-routing", 1360, routing_replacements, note_y=48,
+            cell_overrides={
+                "uQWPh24YtvhKBnw1L0BU-118": "att-hub",
+            },
+        ),
+        clone_oracle_page(
+            source_root, "OPS - Test Network Flows", "06 — OPS · Test Network Flows (Oracle tailored)",
+            "aims-test-network-flows", 1400, flows_replacements, note_y=75, shift_x=150, shift_y=220,
+            cell_overrides={
+                "S_3TL2629PCZjv7L1LQ_-249": "Regional WAF → Load Balancer<br><b>aims-public-lb</b>",
+                "S_3TL2629PCZjv7L1LQ_-416": "aims-public-lb-listener-443",
+                "S_3TL2629PCZjv7L1LQ_-417": "443/HTTPS",
+                # The Oracle source repeats the nonprod DB CIDR in the prod
+                # block. Give each tailored spoke an explicit, non-overlapping
+                # label instead of inheriting that template typo.
+                "S_3TL2629PCZjv7L1LQ_-48": "sn-oe02-ds-reserved 10.2.0.0/28",
+                "etmWukj12oxoEFpmCBWY-142": "sn-oke-pods 10.1.16.0/20",
+                "etmWukj12oxoEFpmCBWY-143": "sn-oke-workers 10.1.1.0/24",
+                "etmWukj12oxoEFpmCBWY-144": "sn-oke-lb 10.1.2.0/24",
+                "etmWukj12oxoEFpmCBWY-145": "sn-oke-api 10.1.0.0/28",
+                "S_3TL2629PCZjv7L1LQ_-274": "att-oe01",
+                "S_3TL2629PCZjv7L1LQ_-277": "att-oe02 [TARGET]",
+                "S_3TL2629PCZjv7L1LQ_-484": "OCI DATA SCIENCE CLIENT CONTRACT • OE02 [TARGET]",
+                "S_3TL2629PCZjv7L1LQ_-486": "Workload",
+                "S_3TL2629PCZjv7L1LQ_-487": "Protocol",
+                "S_3TL2629PCZjv7L1LQ_-488": "Destination",
+                "S_3TL2629PCZjv7L1LQ_-489": "Route",
+                "S_3TL2629PCZjv7L1LQ_-490": "Network control",
+                "S_3TL2629PCZjv7L1LQ_-491": "Auth",
+                "S_3TL2629PCZjv7L1LQ_-493": "Notebook / Job",
+                "S_3TL2629PCZjv7L1LQ_-494": "TLS/9093",
+                "S_3TL2629PCZjv7L1LQ_-495": "Kafka OE01",
+                "S_3TL2629PCZjv7L1LQ_-496": "DRG → Hub FW → DRG",
+                "S_3TL2629PCZjv7L1LQ_-497": "NSG allowlist",
+                "S_3TL2629PCZjv7L1LQ_-498": "Kafka ACL / mTLS",
+            },
+        ),
         clone_oracle_page(source_root, "NET (3) - EW.4 Intra-OE", "07 — NET · EW.4 Intra-OE (Oracle tailored)", "aims-ew4-intra-oe", 1420, intra_replacements, replace_oe_firewalls=True, note_y=130),
         clone_oracle_page(source_root, "NET (3) - EW.3 Inter-OE", "08 — NET · EW.3 Inter-OE (Oracle tailored)", "aims-ew3-inter-oe", 2140, inter_replacements, replace_oe_firewalls=True, note_y=130),
-        clone_oracle_page(source_root, "NET (2) - Posture", "09 — SEC · Posture (Oracle tailored)", "aims-security-posture", 1600, posture_replacements, note_y=90),
+        clone_oracle_page(
+            source_root, "NET (2) - Posture", "09 — SEC · Posture (Oracle tailored)",
+            "aims-security-posture", 1600, posture_replacements, note_y=90,
+            cell_overrides={"24MqUwu4XFtO3MiWCUXA-3": "cmp-oe1"},
+        ),
     ]
+    tailor_actual_routing(pages[0])
+    _add_security_status_panel(pages[-1])
+    return pages
+
+
+def update_existing_pages(root: ET.Element) -> None:
+    """Keep the four hand-built pages aligned with the audited OCI runtime."""
+    page_updates = {
+        "aims-reference-2": {
+            "GiSpHh_FsViHcgmzZnOo-95": "cmp-oe02 — DATA SCIENCE OE<br>foundation ACTIVE",
+            "mFvu3s6z0drbOKhyuYfr-1": "cmp-oe01-sandbox<br>[FUTURE]",
+            "GiSpHh_FsViHcgmzZnOo-93": "cmp-oe01-nonprod<br>[FUTURE]",
+            "GiSpHh_FsViHcgmzZnOo-97": "cmp-oe02-sensitive-data<br>Security Zone ACTIVE",
+            "mFvu3s6z0drbOKhyuYfr-2": "cmp-oe02-development<br>ACTIVE • no VCN/compute",
+            "GiSpHh_FsViHcgmzZnOo-98": "cmp-oe02-nonprod<br>[FUTURE]",
+            "GiSpHh_FsViHcgmzZnOo-99": "cmp-oe02-prod<br>[FUTURE]",
+        },
+        "aims-reference-4": {
+            "scope2": (
+                "Mẫu mạng Oracle: các VCN môi trường do OE common-network quản lý. Đường xanh biểu diễn "
+                "Hub/Spoke VCN gắn vào DRG. Runtime có Hub B + development VCN; co/prod/np/sb là dự kiến. "
+                "Network Firewall trong hình là target-state và hiện đã bị xóa."
+            ),
+        },
+        "aims-hub-b-detail": {
+            "detail-2": (
+                "TARGET-STATE • Shared resources bên trái, OE common-network ở giữa, Development workload bên phải • "
+                "Firewall giữ theo kiến trúc trước khi xóa"
+            ),
+            "detail-52": "Target: 3 managed workers • 4 OCPU / 32 GB each",
+            "detail-59": "Shared OKE — target 3 worker nodes",
+            "detail-ds-managed": "OE02 Data Science [TARGET] → Kafka OE01 qua Hub B Firewall",
+            "detail-98": (
+                "Adapted from Oracle OCI Open LZ / Multi-OE Generic v1 • Audited 27/09/2026 • "
+                "Source: OCI_AIMS_GENERIC_V1_NOTES.md"
+            ),
+        },
+        "aims-runtime-detail": {
+            "p3-1": "AIMS — target application workload trên shared OKE",
+            "p3-3": (
+                "AIMS / OCI MANUAL LAB     •     27.09.2026     •     04 / 09     •     "
+                "Editable OCI icons — Oracle Architecture Diagram Toolkit"
+            ),
+            "p3-102": "Target worker 1 / FD1",
+            "p3-126": "Target worker 2 / FD2",
+            "p3-150": "Target worker 3 / FD3",
+        },
+    }
+    for page_id, updates in page_updates.items():
+        page = root.find(f"diagram[@id='{page_id}']")
+        if page is None:
+            raise RuntimeError(f"Target workbook is missing page: {page_id}")
+        cells = {cell.get("id"): cell for cell in page.findall(".//mxCell")}
+        for cell_id, value in updates.items():
+            if cell_id not in cells:
+                raise RuntimeError(f"Target workbook is missing expected cell: {cell_id}")
+            cells[cell_id].set("value", value)
+
+    # Page 04 was exactly on a page boundary; the final stroke caused Draw.io
+    # to export a second blank sheet. Add a small right margin.
+    runtime_page = root.find("diagram[@id='aims-runtime-detail']/mxGraphModel")
+    if runtime_page is None:
+        raise RuntimeError("Target workbook is missing the AIMS runtime graph model")
+    runtime_page.set("pageWidth", "2020")
 
 
 def main() -> int:
@@ -769,6 +1322,7 @@ def main() -> int:
 
     tree = ET.parse(target)
     root = tree.getroot()
+    update_existing_pages(root)
     replacement_ids = {
         "aims-routing",
         "aims-test-network-flows",
