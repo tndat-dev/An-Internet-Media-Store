@@ -3,31 +3,29 @@
 set -euo pipefail
 
 gateway=${AIMS_BASE_URL:-http://10.1.16.234:31088}
-keycloak=${AIMS_KEYCLOAK_URL:-http://10.1.16.234:30080/auth}
 run_id=${AIMS_TEST_RUN_ID:-$(date +%s)}
 bootstrap_user="accept-bootstrap-${run_id}"
 bootstrap_password="Aims-${run_id}-Pass!"
-client_secret=$(kubectl -n production get secret aims-runtime -o jsonpath='{.data.KEYCLOAK_CLIENT_SECRET}' | base64 -d)
-
-admin_token=$(curl -fsS -d grant_type=client_credentials -d client_id=aims-app \
-  --data-urlencode "client_secret=${client_secret}" \
-  "${keycloak}/realms/aims/protocol/openid-connect/token" | jq -r .access_token)
-if [[ -z "${admin_token}" || "${admin_token}" == null ]]; then
-  echo 'Keycloak client-credentials token unavailable' >&2
-  exit 1
-fi
+auth_pod=$(kubectl -n production get pod -l app.kubernetes.io/name=auth-service \
+  -o jsonpath='{.items[0].metadata.name}')
 
 cleanup() {
-  local name user_id
-  for name in "${bootstrap_user}" "accept-buyer-${run_id}" "accept-managed-${run_id}"; do
-    user_id=$(curl -fsS -G -H "Authorization: Bearer ${admin_token}" \
-      --data-urlencode "username=${name}" --data-urlencode 'exact=true' \
-      "${keycloak}/admin/realms/aims/users" | jq -r --arg name "${name}" '.[] | select(.username == $name) | .id' | head -n1) || continue
-    if [[ -n "${user_id}" ]]; then
-      curl -fsS -X DELETE -H "Authorization: Bearer ${admin_token}" \
-        "${keycloak}/admin/realms/aims/users/${user_id}" >/dev/null || true
-    fi
-  done
+  kubectl -n production exec -i "${auth_pod}" -- env RUN_ID="${run_id}" python3 - <<'PY' || true
+import os
+import psycopg
+
+run_id = os.environ["RUN_ID"]
+usernames = [
+    f"accept-bootstrap-{run_id}",
+    f"accept-buyer-{run_id}",
+    f"accept-managed-{run_id}",
+]
+with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+    connection.execute(
+        "DELETE FROM auth_service.users WHERE username = ANY(%s)",
+        (usernames,),
+    )
+PY
 }
 trap cleanup EXIT
 
@@ -42,13 +40,16 @@ if [[ -z "${bootstrap_id}" ]]; then
   exit 1
 fi
 
-for role in ADMIN PRODUCT_MANAGER; do
-  role_json=$(curl -fsS -H "Authorization: Bearer ${admin_token}" \
-    "${keycloak}/admin/realms/aims/roles/${role}")
-  curl -fsS -X POST -H "Authorization: Bearer ${admin_token}" \
-    -H 'Content-Type: application/json' -d "[$role_json]" \
-    "${keycloak}/admin/realms/aims/users/${bootstrap_id}/role-mappings/realm" >/dev/null
-done
+kubectl -n production exec -i "${auth_pod}" -- env USER_ID="${bootstrap_id}" python3 - <<'PY'
+import os
+import psycopg
+
+with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+    connection.execute(
+        "UPDATE auth_service.users SET roles=%s, updated_at=now() WHERE user_id=%s",
+        (["ADMIN", "CUSTOMER", "PRODUCT_MANAGER"], os.environ["USER_ID"]),
+    )
+PY
 
 login=$(curl -fsS -H 'Host: aims.lab' -H 'Content-Type: application/json' \
   -d "$(jq -nc --arg username "${bootstrap_user}" --arg password "${bootstrap_password}" \

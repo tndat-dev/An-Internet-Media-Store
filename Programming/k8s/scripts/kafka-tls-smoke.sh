@@ -89,16 +89,55 @@ topics=$(kubectl -n "${NAMESPACE}" exec "${POD}" -- \
   --command-config /tmp/client.properties --list)
 grep -Fqx "${TOPIC}" <<<"${topics}"
 
-message="aims-smoke-$(date -u +%Y%m%dT%H%M%SZ)"
+before=$(kubectl -n "${NAMESPACE}" exec "${POD}" -- \
+  bin/kafka-get-offsets.sh --bootstrap-server "${BOOTSTRAP}" \
+  --command-config /tmp/client.properties --topic "${TOPIC}")
+
+message="{\"event_type\":\"ProofEvent\",\"event_id\":\"aims-smoke-$(date -u +%Y%m%dT%H%M%SZ)-${RANDOM}\"}"
 printf '%s\n' "${message}" | kubectl -n "${NAMESPACE}" exec -i "${POD}" -- \
   bin/kafka-console-producer.sh --bootstrap-server "${BOOTSTRAP}" \
-  --producer.config /tmp/client.properties --topic "${TOPIC}"
+  --command-config /tmp/client.properties --topic "${TOPIC}"
 
-group="aims-smoke-$(date +%s)"
-output=$(kubectl -n "${NAMESPACE}" exec "${POD}" -- \
-  bin/kafka-console-consumer.sh --bootstrap-server "${BOOTSTRAP}" \
-  --consumer.config /tmp/client.properties --topic "${TOPIC}" \
-  --group "${group}" --from-beginning --timeout-ms 15000 2>/dev/null || true)
+sleep 2
+after=$(kubectl -n "${NAMESPACE}" exec "${POD}" -- \
+  bin/kafka-get-offsets.sh --bootstrap-server "${BOOTSTRAP}" \
+  --command-config /tmp/client.properties --topic "${TOPIC}")
 
-grep -Fqx "${message}" <<<"${output}"
+declare -A old_offsets
+while IFS=: read -r _ partition offset; do
+  old_offsets["${partition}"]="${offset}"
+done <<<"${before}"
+
+matched=false
+while IFS=: read -r _ partition new_offset; do
+  old_offset=${old_offsets[${partition}]:-0}
+  count=$((new_offset - old_offset))
+  if (( count <= 0 )); then
+    continue
+  fi
+  output=$(kubectl -n "${NAMESPACE}" exec "${POD}" -- \
+    bin/kafka-console-consumer.sh --bootstrap-server "${BOOTSTRAP}" \
+    --consumer.config /tmp/client.properties --topic "${TOPIC}" \
+    --partition "${partition}" --offset "${old_offset}" \
+    --max-messages "${count}" --timeout-ms 15000 2>/dev/null || true)
+  if grep -Fqx "${message}" <<<"${output}"; then
+    printf 'Matched partition=%s offset=%s\n' "${partition}" "${old_offset}"
+    matched=true
+    break
+  fi
+done <<<"${after}"
+
+[[ "${matched}" == true ]]
 printf 'PASS Kafka TLS produce/consume: %s\n' "${message}"
+
+for group in \
+  aims.inventory-service.v1 \
+  aims.payment-service.v1 \
+  aims.order-service.v1 \
+  aims-notification-service.v1
+do
+  printf '\n=== Consumer group: %s ===\n' "${group}"
+  kubectl -n "${NAMESPACE}" exec "${POD}" -- \
+    bin/kafka-consumer-groups.sh --bootstrap-server "${BOOTSTRAP}" \
+    --command-config /tmp/client.properties --describe --group "${group}"
+done

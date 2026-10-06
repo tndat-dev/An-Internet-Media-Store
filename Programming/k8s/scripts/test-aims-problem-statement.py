@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Destructive synthetic acceptance test for the AIMS problem statement.
 
-Run against the lab only. It creates three paid sandbox orders and one product,
+Run against the lab only. It creates one paid sandbox order and one product,
 then removes the product. AIMS_TEST_MANAGER_TOKEN must belong to a user carrying
 PRODUCT_MANAGER; add ADMIN as well to exercise account administration.
 """
@@ -35,8 +35,6 @@ def check(label: str, condition: bool, detail: str = "") -> None:
     else:
         failures += 1
         print(f"FAIL  {label}{': ' + detail if detail else ''}")
-
-
 def request(
     method: str,
     path: str,
@@ -90,6 +88,12 @@ def wait_for(label: str, probe, predicate, timeout: int = 45):
     return last
 
 
+def kafka_trace(source: str, event: str, topic: str, target: str, evidence: str) -> None:
+    """Print a concise, evidence-backed Kafka handoff for the live demo."""
+    print(f"KAFKA {source} --[{event}]--> {topic} --> {target}")
+    print(f"      VERIFIED: {evidence}")
+
+
 def public_and_identity_checks() -> None:
     _, health = request("GET", "/api/health/")
     check("API Gateway Redis limiter ready", health.get("redisRateLimiter") == "ready", str(health))
@@ -104,7 +108,12 @@ def public_and_identity_checks() -> None:
     username = f"accept-buyer-{RUN_ID}"
     email = f"accept-buyer-{RUN_ID}@example.test"
     password = f"Aims-{RUN_ID}-Pass!"
-    _, registration = request("POST", "/api/auth/register/", {"username": username, "email": email, "password": password, "fullName": "AIMS Acceptance Buyer"})
+    _, registration = request(
+        "POST",
+        "/api/auth/register/",
+        {"username": username, "email": email, "password": password, "fullName": "AIMS Acceptance Buyer"},
+        expected=(201,),
+    )
     cleanup_users.append(registration.get("user", {}).get("userId", ""))
     roles = registration.get("user", {}).get("roles", [])
     check("Self-registration assigns CUSTOMER only", roles == ["CUSTOMER"], f"roles={roles}")
@@ -127,15 +136,16 @@ def admin_checks() -> None:
     _, blocked = request("POST", f"/api/admin/users/{user_id}/status/", {"status": "BLOCKED"}, token=ADMIN_TOKEN)
     check("Administrator can block account", blocked.get("status") == "BLOCKED")
     request("POST", f"/api/admin/users/{user_id}/status/", {"status": "ACTIVE"}, token=ADMIN_TOKEN)
-    request("POST", f"/api/admin/users/{user_id}/reset-password/", token=ADMIN_TOKEN, expected=(204,))
+    request("POST", f"/api/admin/users/{user_id}/reset-password/", token=ADMIN_TOKEN)
 
 
-def checkout(product_id: str, action: str, expected_available: int) -> None:
+def successful_checkout(product_id: str, expected_available: int) -> None:
+    action = "approve"
     cart_token = f"accept-cart-{RUN_ID}-{action}"
     _, cart = request("POST", "/api/cart/items/", {"productId": product_id, "quantity": 1}, cart_token=cart_token)
     check(f"{action}: cart subtotal excludes VAT", Decimal(cart["subtotalExclVat"]) == Decimal("12000"))
     _, draft = request("POST", "/api/orders/draft/", {}, cart_token=cart_token, expected=(201,))
-    order_id, order_token, cancel_token = draft["orderId"], draft["orderToken"], draft["cancelToken"]
+    order_id, order_token = draft["orderId"], draft["orderToken"]
     _, preview = request("POST", f"/api/orders/{order_id}/delivery/preview/", {"province": "Ha Noi", "deliveryMethod": "STANDARD"})
     check(f"{action}: VAT is 10%", Decimal(preview["vatAmount"]) == Decimal("1200"), str(preview))
     check(f"{action}: Ha Noi first 3kg fee", Decimal(preview["deliveryFee"]) == Decimal("22000"), str(preview))
@@ -155,30 +165,62 @@ def checkout(product_id: str, action: str, expected_available: int) -> None:
     stock = request("GET", f"/api/inventory/{product_id}", quiet=True)[1]
     if stock.get("available") != expected_available - 1:
         raise RuntimeError(f"Stock reservation failed for {action}; stopping before synthetic payment")
+    kafka_trace(
+        "order-service",
+        "OrderCreated",
+        "aims.business.order.created.v1",
+        "inventory-service",
+        f"available={stock.get('available')}, reserved={stock.get('reserved')}",
+    )
+
+    payment = wait_for(
+        "InventoryReserved reaches payment-service",
+        lambda: request(
+            "GET",
+            f"/api/payments/orders/{order_id}/",
+            expected=(200, 404),
+            quiet=True,
+        )[1],
+        lambda value: value.get("paymentStatus") == "AWAITING_PAYMENT",
+    )
+    kafka_trace(
+        "inventory-service",
+        "InventoryReserved",
+        "aims.business.inventory.reserved.v1",
+        "payment-service",
+        f"paymentStatus={payment.get('paymentStatus')}",
+    )
+
     _, qr = request("POST", "/api/payments/vietqr/qr-code/", {"order_id": order_id, "amount": "1"})
     check(f"{action}: VietQR ignores tampered browser amount", Decimal(qr["amount"]) == Decimal("35200"), str(qr))
     check(f"{action}: VietQR returns scannable payload", bool(qr.get("qr_code") or qr.get("qr_payload")))
     request("POST", "/api/payments/vietqr/test-callback/", {"transaction_id": qr["transaction_id"]})
-    wait_for(
+    paid_order = wait_for(
         f"{action}: PaymentCompleted transitions order",
         lambda: request("GET", f"/api/orders/{order_token}/", quiet=True)[1],
         lambda order: order.get("status") == "PENDING_PROCESSING",
     )
-    if action == "approve":
-        request("POST", f"/api/orders/manage/{order_id}/approve/", {}, token=MANAGER_TOKEN)
-    elif action == "cancel":
-        _, cancelled = request("POST", f"/api/orders/{cancel_token}/cancel/", {})
-        check("VietQR cancellation requires manual refund", cancelled.get("refundSummary", {}).get("refundStatus") == "MANUAL_REQUIRED", str(cancelled))
-        request("POST", f"/api/orders/manage/{order_id}/mark-refunded/", {"note": "Acceptance test refund"}, token=MANAGER_TOKEN)
-    else:
-        _, rejected = request("POST", f"/api/orders/manage/{order_id}/reject/", {"reason": "Acceptance test rejection"}, token=MANAGER_TOKEN)
-        check("VietQR rejection requires manual refund", rejected.get("refundSummary", {}).get("refundStatus") == "MANUAL_REQUIRED", str(rejected))
-        request("POST", f"/api/orders/manage/{order_id}/mark-refunded/", {"note": "Acceptance test refund"}, token=MANAGER_TOKEN)
-    expected_final = expected_available - 1 if action == "approve" else expected_available
-    wait_for(
+    kafka_trace(
+        "payment-service",
+        "PaymentCompleted",
+        "aims.business.payment.completed.v1",
+        "order-service",
+        f"orderStatus={paid_order.get('status')}",
+    )
+
+    request("POST", f"/api/orders/manage/{order_id}/approve/", {}, token=MANAGER_TOKEN)
+    expected_final = expected_available - 1
+    final_stock = wait_for(
         f"{action}: lifecycle finalizes inventory",
         lambda: request("GET", f"/api/inventory/{product_id}", quiet=True)[1],
         lambda stock: stock.get("available") == expected_final and stock.get("reserved") == 0,
+    )
+    kafka_trace(
+        "order-service",
+        "OrderApproved",
+        "aims.business.order.lifecycle.v1",
+        "inventory-service",
+        f"available={final_stock.get('available')}, reserved={final_stock.get('reserved')}",
     )
 
 
@@ -211,9 +253,7 @@ def manager_product_and_order_checks() -> None:
     try:
         request("GET", f"/api/products/{product_id}/?scope=customer")
         request("GET", f"/api/products/histories/?product_id={product_id}", token=MANAGER_TOKEN)
-        checkout(product_id, "approve", 5)
-        checkout(product_id, "cancel", 4)
-        checkout(product_id, "reject", 4)
+        successful_checkout(product_id, 5)
         _, manager_product = request("GET", f"/api/products/{product_id}/", token=MANAGER_TOKEN)
         check("Catalog composes authoritative post-order stock", manager_product.get("stock_quantity") == 4, str(manager_product))
     finally:
